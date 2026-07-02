@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>@dojo-ng/framework — real-DOM smoke</title>
+<!--
+  Browser smoke for the real-DOM nodeApi (createDomApi), review task 1.2.
+
+  Run `npm run build` first, then serve the framework dir and open this page:
+      cd "Dojo NG/framework" && npm run build && python3 -m http.server 8080
+      # → http://localhost:8080/smoke/browser.html
+  (A module + import map won't load over file://; it needs http.)
+
+  What it proves: renderer().mount() with NO nodeApi falls back to
+  createDomApi() against the page's real document, mounts a keyed list, and
+  updates it in place on button clicks — keyed reorder, add, remove, a live
+  render counter, and a click handler that re-registers cleanly each render.
+-->
+<style>
+	body { font: 15px/1.5 system-ui, sans-serif; margin: 2rem; max-width: 40rem; }
+	h1 { font-size: 1.2rem; }
+	button { font: inherit; padding: 0.3rem 0.7rem; margin-right: 0.4rem; }
+	ul { padding-left: 1.2rem; }
+	li { margin: 0.15rem 0; }
+	.muted { color: #666; }
+	#status { margin-top: 1rem; padding: 0.5rem 0.75rem; background: #f3f3f3; border-radius: 6px; }
+	.ok { color: #157347; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>@dojo-ng/framework — real-DOM smoke</h1>
+<p class="muted">
+	The list below is rendered by <code>renderer().mount()</code> with no
+	<code>nodeApi</code> passed, so it uses the real-DOM <code>createDomApi()</code>.
+	Use the buttons; the list should update in place.
+</p>
+<div id="app"></div>
+<div id="status">Loading…</div>
+
+<script type="importmap">
+{
+	"imports": {
+		"@dojo-ng/framework": "../dist/core/vdom.js"
+	}
+}
+</script>
+
+<script type="module">
+	import { renderer, v } from "@dojo-ng/framework";
+
+	// App state (closed over by the render function; mutate + invalidate to update).
+	let nextId = 4;
+	let items = [
+		{ id: 1, label: "Alpha" },
+		{ id: 2, label: "Beta" },
+		{ id: 3, label: "Gamma" },
+	];
+	let renders = 0;
+	let clicks = 0;
+
+	const setStatus = (msg, ok = true) => {
+		const el = document.getElementById("status");
+		el.className = ok ? "ok" : "";
+		el.textContent = msg;
+	};
+
+	function view() {
+		renders++;
+		return v("div", {}, [
+			v("div", {}, [
+				v("button", { onclick: () => { items = [...items].reverse(); app.invalidate(); } }, ["Reverse"]),
+				v("button", { onclick: () => { items = [...items, { id: nextId++, label: "Item " + (nextId - 1) }]; app.invalidate(); } }, ["Add"]),
+				v("button", { onclick: () => { items = items.slice(1); app.invalidate(); } }, ["Remove first"]),
+				v("button", { onclick: () => { clicks++; app.invalidate(); } }, ["Count clicks"]),
+			]),
+			v("ul", {}, items.map((it) => v("li", { key: it.id, "data-id": String(it.id) }, [`#${it.id} — ${it.label}`]))),
+			v("p", { class: "muted" }, [`renders: ${renders} · clicks: ${clicks} · items: ${items.length}`]),
+		]);
+	}
+
+	const app = renderer(view);
+	try {
+		// No nodeApi → the renderer defaults to createDomApi() against document.
+		app.mount({ domNode: document.getElementById("app"), sync: true });
+		setStatus("Mounted via createDomApi(). Try the buttons — the list updates in place.");
+	} catch (err) {
+		setStatus("Mount failed: " + err.message, false);
+		throw err;
+	}
+</script>
+</body>
+</html>

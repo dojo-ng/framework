@@ -1,0 +1,22 @@
+syntax: glob
+
+# build output / deps
+node_modules
+dist
+*.tsbuildinfo
+
+# macOS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+
+# python / editor cruft
+__pycache__
+.idea
+.vscode
+*.swp
+*.swo
+*~
+*.log

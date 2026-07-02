@@ -1,0 +1,19 @@
+{
+  "// note": "TypeScript build for @dojo-ng/framework (ESM). Source in src/, compiled to dist/, which is what package.json main/types/exports resolve and what npm publishes (files: [dist]); dist/ is git/hg-ignored, not committed. module:nodenext + package.json type:module ⇒ ESM emit with explicit ./*.js import specifiers, so the renderer loads natively in the browser via import maps (no bundler). Tests/smoke import from ../dist/core/ (run npm run build first).",
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "lib": ["ES2020", "DOM"],
+    "rootDir": "src",
+    "outDir": "dist",
+    "declaration": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "importHelpers": false,
+    "noEmitOnError": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts"]
+}

@@ -1,0 +1,37 @@
+{
+  "name": "@dojo-ng/framework",
+  "version": "0.3.0",
+  "description": "Dojo NG framework — clean-room v()-only VDOM renderer (ESM, property-first for custom elements, O(n) keyed reconciliation)",
+  "type": "module",
+  "main": "dist/core/vdom.js",
+  "types": "dist/core/vdom.d.ts",
+  "exports": {
+    ".": { "types": "./dist/core/vdom.d.ts", "default": "./dist/core/vdom.js" },
+    "./core/vdom": { "types": "./dist/core/vdom.d.ts", "default": "./dist/core/vdom.js" },
+    "./core/dom-api": { "types": "./dist/core/dom-api.d.ts", "default": "./dist/core/dom-api.js" },
+    "./core/has": { "types": "./dist/core/has.d.ts", "default": "./dist/core/has.js" }
+  },
+  "files": ["dist"],
+  "license": "BSD-3-Clause",
+  "keywords": ["dojo", "vdom", "renderer", "web-components", "esm"],
+  "repository": {
+    "type": "hg",
+    "url": "https://foss.heptapod.net/dojo-ng/framework"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "smoke": "npm run build && node smoke/has.mjs && node smoke/tsx.mjs",
+    "test:golden": "npm run build && node --test test/vdom.test.mjs test/factories.test.mjs",
+    "bench": "npm run build && node test/bench.mjs",
+    "test": "npm run build && node smoke/has.mjs && node smoke/tsx.mjs && node --test test/vdom.test.mjs test/factories.test.mjs",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "changeset publish",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.0",
+    "typescript": "6.0.3"
+  }
+}
