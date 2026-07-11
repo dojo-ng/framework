@@ -36,7 +36,7 @@ ok("has('microtasks') === true (via es6-promise)", has('microtasks') === true);
 // Unregistered → undefined (NOT false); strict throws.
 ok("unregistered feature → undefined", has('totally-unknown') === undefined);
 let strictThrew = false;
-try { has('still-unknown', true); } catch (e) { strictThrew = true; }
+try { has('still-unknown', true); } catch { strictThrew = true; }
 ok("strict mode throws on unregistered", strictThrew);
 
 // Feature names are lowercased.
@@ -53,7 +53,7 @@ ok("exists() false for unknown", exists('no-such-feature') === false);
 
 // add() guards duplicates unless overwrite.
 let dupThrew = false;
-try { add('dojo-debug', true); } catch (e) { dupThrew = true; }
+try { add('dojo-debug', true); } catch { dupThrew = true; }
 ok("add() throws on duplicate without overwrite", dupThrew);
 add('dojo-debug', true, true);
 ok("add() overwrite replaces the value", has('dojo-debug') === true);

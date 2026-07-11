@@ -146,7 +146,7 @@ add(
 		glob.window.CSS.supports("(--a: 0)"),
 	true
 );
-add("dom-inert", () => has("host-browser") && Element.prototype.hasOwnProperty("inert"), true);
+add("dom-inert", () => has("host-browser") && Object.prototype.hasOwnProperty.call(Element.prototype, "inert"), true);
 add(
 	"dom-passive-event",
 	() => {
@@ -161,7 +161,7 @@ add(
 				const noop = () => {};
 				window.addEventListener("testPassive", noop, opts);
 				window.removeEventListener("testPassive", noop, opts as any);
-			} catch (e) {}
+			} catch { /* passive option not supported */ }
 		}
 		return supportsPassive;
 	},
