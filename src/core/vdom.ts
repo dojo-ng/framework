@@ -582,11 +582,25 @@ function nextDomNode(children: Array<RNode | null>, from: number): any {
 	return null;
 }
 
-/** Fire onDetach for every dom() node in a subtree, parent→child order. */
-function fireDetach(r: RNode | null): void {
+/** Remove every dispatcher registered (via setEventHandler) on `domNode`, so a
+ *  node leaving the tree doesn't keep a live listener on its now-detached DOM
+ *  node — found by the framework-browser-smoke-spec real-browser suite (decision
+ *  3): the mock DOM's opLog never distinguished "still attached" from "detached
+ *  but still listening", so this gap had no golden coverage. */
+function clearEventHandlers(domNode: any, nodeApi: NodeApi): void {
+	const byType = eventRegistry.get(domNode);
+	if (!byType) return;
+	for (const type of byType.keys()) nodeApi.removeEvent(domNode, type);
+	eventRegistry.delete(domNode);
+}
+
+/** Fire onDetach for every dom() node in a subtree (parent→child order) and tear
+ *  down any event dispatchers registered on element/dom nodes in it. */
+function fireDetach(r: RNode | null, nodeApi: NodeApi): void {
 	if (!r) return;
 	if (r.kind === "dom" && (r.dnode as DomVNode).onDetach) (r.dnode as DomVNode).onDetach!();
-	for (const c of r.children) fireDetach(c);
+	if ((r.kind === "element" || r.kind === "dom") && r.domNode != null) clearEventHandlers(r.domNode, nodeApi);
+	for (const c of r.children) fireDetach(c, nodeApi);
 }
 
 /** Remove an RNode's DOM from its parent (virtual removes each child's DOM). */
@@ -598,10 +612,11 @@ function removeDom(r: RNode, parentDom: any, ctx: RenderCtx): void {
 	if (r.domNode != null) ctx.nodeApi.removeChild(parentDom, r.domNode);
 }
 
-/** Remove an RNode: fire its subtree's onDetach hooks, then detach its DOM. */
+/** Remove an RNode: fire its subtree's onDetach hooks + tear down its listeners,
+ *  then detach its DOM. */
 function removeRNode(r: RNode | null, parentDom: any, ctx: RenderCtx): void {
 	if (!r) return;
-	fireDetach(r);
+	fireDetach(r, ctx.nodeApi);
 	removeDom(r, parentDom, ctx);
 }
 

@@ -1,5 +1,23 @@
 # @dojo-ng/framework changelog
 
+## Unreleased
+
+- **Real-browser smoke test layer** (closes the last piece of #127). The golden
+  suite (`test/vdom.test.mjs` + `test/factories.test.mjs`) drives the renderer over
+  a mock DOM and stays the authoritative behavior spec; a new `test/browser/`
+  layer (`@web/test-runner` + Playwright, Chromium/Firefox/WebKit) runs it against
+  a real `document` instead, catching mock-vs-real gaps a mock can't fake: real
+  `click` events, focus surviving a keyed reorder, a real custom element's
+  property-first upgrade semantics, real `CSSStyleDeclaration`, and real microtask
+  batching. `npm run test:browser` runs it; `README.md` documents all three test
+  layers and their commands.
+- **Fix:** removing a node from the tree now also removes its event listener(s).
+  `removeRNode` previously detached the DOM node (`removeChild`) but never called
+  `removeEvent`, so a removed node kept a live `addEventListener` registration
+  indefinitely (harmless once garbage collected, but a real bug: dispatching
+  directly on the detached node reference still ran the old handler). Found by the
+  browser smoke layer above, which a mock DOM's op-log had no way to catch.
+
 ## 0.3.0 — clean-room v()-only renderer + ESM cutover (#126)
 
 **Breaking.** The renderer is a clean-room v()-only reconciler, authored in

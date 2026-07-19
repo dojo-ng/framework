@@ -88,6 +88,28 @@ test("events: a handler changing from a function to a non-function removes the l
 	assert.equal(clicks, 1, "the removed handler no longer fires");
 });
 
+test("events: removing the whole element from the tree tears down its listener(s)", () => {
+	// Found by the framework-browser-smoke-spec real-browser suite (decision 3): the
+	// stable-dispatcher registry (eventRegistry) is keyed by domNode, but removeRNode
+	// only ever called nodeApi.removeChild — never removeEvent — so a removed node's
+	// listener stayed live on the now-detached DOM node. The mock's opLog never
+	// caught this because nothing had asserted removeEvent fires on whole-node
+	// removal, only on the function→non-function prop transition above.
+	let show = true;
+	let clicks = 0;
+	const app = mountApp(() => (show ? v("button", { onclick: () => { clicks++; } }, ["go"]) : null));
+	const btn = app.childrenOf(app.root)[0];
+	app.fireEvent(btn, "click");
+	assert.equal(clicks, 1);
+	app.clearOps();
+	show = false;
+	app.update();
+	assert.equal(app.counts().removeEvent || 0, 1, "the removed node's listener must be torn down, not left dangling");
+	const fired = app.fireEvent(btn, "click"); // dispatched directly on the detached node reference
+	assert.equal(fired, false, "no listener remains registered on the detached node");
+	assert.equal(clicks, 1, "handler does not run after removal");
+});
+
 // --- virtual / deferred -----------------------------------------------------
 
 test("virtual node renders its children with no wrapper element", () => {
@@ -490,6 +512,25 @@ test("lifecycle: dom() onDetach fires when the node is removed from the tree", (
 	app.update();
 	assert.equal(detached, 1);
 	assert.equal(app.html(), "<div></div>");
+});
+
+test("lifecycle: dom() event handler is torn down when the node is removed from the tree", () => {
+	const dom = createMockDom();
+	const ext = dom.createElement("section");
+	let clicks = 0;
+	let show = true;
+	const app = mountWith(dom, () =>
+		v("div", {}, show ? [domVNode({ node: ext, on: { click: () => { clicks++; } } }, [])] : [])
+	);
+	app.fireEvent(ext, "click");
+	assert.equal(clicks, 1);
+	app.clearOps();
+	show = false;
+	app.update();
+	assert.equal(app.counts().removeEvent || 0, 1, "dom()'s registered listener is torn down on removal too");
+	const fired = app.fireEvent(ext, "click");
+	assert.equal(fired, false);
+	assert.equal(clicks, 1);
 });
 
 test("lifecycle: dom() onDetach fires on unmount", () => {
