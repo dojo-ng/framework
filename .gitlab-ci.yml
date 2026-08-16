@@ -1,0 +1,46 @@
+stages: [test, release]
+
+default:
+  interruptible: true
+
+.node: &node
+  image: node:22
+  before_script:
+    - npm ci
+
+typecheck:
+  <<: *node
+  stage: test
+  script: npm run typecheck
+
+lint:
+  <<: *node
+  stage: test
+  script: npm run lint
+
+test:
+  <<: *node
+  stage: test
+  script: npm test          # build + 2 smoke + 47 golden
+
+test:browser:
+  stage: test
+  image: mcr.microsoft.com/playwright:v1.61.1-noble
+  before_script:
+    - ARCH=$(uname -m); if [ "$ARCH" = "aarch64" ]; then NODE_ARCH=arm64; else NODE_ARCH=x64; fi
+    - curl -fsSL https://nodejs.org/dist/v22.23.1/node-v22.23.1-linux-${NODE_ARCH}.tar.gz -o /tmp/node.tar.gz
+    - mkdir -p /opt/node22 && tar -xzf /tmp/node.tar.gz -C /opt/node22 --strip-components=1
+    - export PATH=/opt/node22/bin:$PATH
+    - node -v
+    - npm ci
+  script: npm run test:browser
+
+release:
+  <<: *node
+  stage: release
+  rules:
+    - if: $CI_COMMIT_BRANCH == "branch/default"
+      when: manual
+  script:
+    - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" >> .npmrc
+    - npm run release
