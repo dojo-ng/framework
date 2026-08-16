@@ -3,6 +3,22 @@
 Clean-room v()-only VDOM renderer — ESM, property-first for custom elements, O(n)
 keyed reconciliation. See `CHANGELOG.md` for the design writeup and size/perf numbers.
 
+## Development
+
+The canonical repository is Mercurial, hosted on foss.heptapod.net:
+
+```
+hg clone https://foss.heptapod.net/dojo-ng/framework
+cd framework
+npm install
+npm run build
+```
+
+Hosting for this repository is provided at no cost by foss.heptapod.net. Heptapod is
+published by [Orbeet](https://orbeet.io/), and the instance runs on infrastructure
+donated by [Clever Cloud](https://www.clever-cloud.com/). Our thanks to both for
+supporting free and open source projects.
+
 ## Testing
 
 Three layers, in increasing cost:
@@ -24,4 +40,4 @@ renderer bug, the fix lands with a new golden, not just a browser assertion.
 
 ## License
 
-BSD-3-Clause
+BSD-3-Clause. See `LICENSE`.

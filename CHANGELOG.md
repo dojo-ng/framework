@@ -64,22 +64,3 @@ Not changed: the widget rendering machinery and `Registry`/`RegistryHandler`
 modules remain present but dormant (no bundle or performance change). Their
 physical removal — and the resulting size/perf win — is tracked as #126, gated on
 the renderer test suite + benchmarks (#127).
-
-## 0.2.0 — v()-only renderer API (#125)
-
-**Breaking.** The renderer now presents a v()-only public API.
-
-- Removed from the public API: `w`, `isWNode`, and the registry-item JSX helpers
-  (`REGISTRY_ITEM`, `FromRegistry`, `fromRegistry`). Render DOM and custom
-  elements with `v()` / `tsx` using string tags (e.g. `v("dj-button", …)` or
-  `<dj-button>`). Widget (`w()`) elements are no longer supported.
-- The `tsx` JSX factory is v()-only: string tags route to `v()`, and a non-string
-  tag throws a clear error under `dojo-debug` (no per-element check in production).
-- Added `core/vdom.d.ts`: public type declarations for the v()-only surface plus
-  the `tsx.JSX` namespace base. Per-element `dj-` typings are provided by
-  `@dojo-ng/components/types/dojo`, which augments this base.
-
-Not changed: the widget rendering machinery and `Registry`/`RegistryHandler`
-modules remain present but dormant (no bundle or performance change). Their
-physical removal — and the resulting size/perf win — is tracked as #126, gated on
-the renderer test suite + benchmarks (#127).
