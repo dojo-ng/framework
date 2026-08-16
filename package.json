@@ -35,6 +35,10 @@
   "overrides": {
     "errorstacks": "2.4.1"
   },
+  "optionalDependencies": {
+    "@rollup/rollup-darwin-arm64": "4.62.2",
+    "@rollup/rollup-linux-x64-gnu": "4.62.2"
+  },
   "devDependencies": {
     "@changesets/cli": "^2.27.0",
     "@eslint/js": "^10.0.1",
