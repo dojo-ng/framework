@@ -25,7 +25,7 @@ test:
 
 test:browser:
   stage: test
-  image: mcr.microsoft.com/playwright:v1.61.1-noble
+  image: mcr.microsoft.com/playwright:v1.62.1-noble
   before_script:
     - ARCH=$(uname -m); if [ "$ARCH" = "aarch64" ]; then NODE_ARCH=arm64; else NODE_ARCH=x64; fi
     - curl -fsSL https://nodejs.org/dist/v22.23.1/node-v22.23.1-linux-${NODE_ARCH}.tar.gz -o /tmp/node.tar.gz
