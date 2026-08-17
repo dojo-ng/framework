@@ -47,7 +47,8 @@ release:
     SIGSTORE_ID_TOKEN:
       aud: sigstore
   before_script:
-    - npm install -g npm@11
+    - npm install -g npm@11.19.0
+    - npm -v
     - npm ci
   script:
     - npm run release

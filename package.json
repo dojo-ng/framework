@@ -1,6 +1,6 @@
 {
   "name": "@dojo-ng/framework",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Dojo NG framework — clean-room v()-only VDOM renderer (ESM, property-first for custom elements, O(n) keyed reconciliation)",
   "type": "module",
   "main": "dist/core/vdom.js",
@@ -54,10 +54,6 @@
   },
   "overrides": {
     "errorstacks": "2.4.1"
-  },
-  "optionalDependencies": {
-    "@rollup/rollup-darwin-arm64": "4.62.2",
-    "@rollup/rollup-linux-x64-gnu": "4.62.2"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.0",

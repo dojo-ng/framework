@@ -1,5 +1,21 @@
 # @dojo-ng/framework changelog
 
+## 0.3.2
+
+### Patch Changes
+
+- Fixed `npm ci` failing under npm 11 with `EUSAGE`, listing every rollup native
+  platform variant as "missing from lock file". The lockfile only recorded the
+  two platforms (`darwin-arm64`, `linux-x64-gnu`) we'd hand-pinned as an earlier
+  workaround for npm 9's cross-platform optional-deps pruning bug — npm 11's
+  `npm ci` validates against rollup's full declared optionalDependencies list
+  (all ~24 platforms) and rejects a lockfile missing the rest, deterministically,
+  every time. Removed the hand-picked `optionalDependencies` override and
+  regenerated the lockfile with npm 11 from scratch: modern npm resolves and
+  records all platform variants correctly on its own, so the workaround is both
+  obsolete and actively harmful now. Verified `npm ci` clean 3/3 on a Linux
+  container matching the CI runner.
+
 ## 0.3.1
 
 ### Patch Changes
