@@ -1,6 +1,6 @@
 {
   "name": "@dojo-ng/framework",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Dojo NG framework — clean-room v()-only VDOM renderer (ESM, property-first for custom elements, O(n) keyed reconciliation)",
   "type": "module",
   "main": "dist/core/vdom.js",

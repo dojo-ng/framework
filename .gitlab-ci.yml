@@ -1,4 +1,4 @@
-stages: [test, release]
+stages: [test]
 
 default:
   interruptible: true
@@ -35,12 +35,9 @@ test:browser:
     - npm ci
   script: npm run test:browser
 
-release:
+pack:
   <<: *node
-  stage: release
-  rules:
-    - if: $CI_COMMIT_BRANCH == "branch/default"
-      when: manual
+  stage: test
   script:
-    - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" >> .npmrc
-    - npm run release
+    - npm run build
+    - npm pack --dry-run

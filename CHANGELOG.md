@@ -1,5 +1,21 @@
 # @dojo-ng/framework changelog
 
+## 0.3.4
+
+### Patch Changes
+
+- Removed the CI `release` job — it can never succeed. The package's npm
+  security setting ("require 2FA, disallow bypass-2FA tokens") blocks every
+  token, including bypass-2FA-capable ones, from publishing without a live
+  OTP, so every CI publish attempt failed with EOTP by design, not by bug.
+  OIDC Trusted Publishing (tried as an alternative) doesn't work either: npm
+  doesn't support self-hosted GitLab instances yet, and Heptapod is one.
+
+  Publishing is now local: whoever cuts a release runs `npm run release`
+  themselves, authenticating with their own live 2FA. Added a `pack` CI job
+  (`npm run build && npm pack --dry-run`) so CI still verifies the package is
+  actually publishable — the one part of a release CI can still check.
+
 ## 0.3.3
 
 ### Patch Changes
