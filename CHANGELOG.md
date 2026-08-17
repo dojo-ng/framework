@@ -1,5 +1,18 @@
 # @dojo-ng/framework changelog
 
+## 0.3.3
+
+### Patch Changes
+
+- Reverted the release job from npm Trusted Publishing (OIDC) back to
+  `NPM_TOKEN`. Confirmed npm's OIDC support doesn't cover self-hosted GitLab
+  instances yet ("self-hosted runners are not currently supported" per npm's
+  own docs) — Heptapod is self-hosted, not gitlab.com, so `npm publish` never
+  even attempted the OIDC handshake regardless of how the Trusted Publisher was
+  configured on npmjs.com. Revisit once npm extends support to self-hosted
+  GitLab, or move to npm's staged-publish model ahead of the January 2027
+  bypass-2FA-token direct-publish cutover.
+
 ## 0.3.2
 
 ### Patch Changes
