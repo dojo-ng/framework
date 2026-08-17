@@ -36,11 +36,18 @@ test:browser:
   script: npm run test:browser
 
 release:
-  <<: *node
+  image: node:22
   stage: release
   rules:
     - if: $CI_COMMIT_BRANCH == "branch/default"
       when: manual
+  id_tokens:
+    NPM_ID_TOKEN:
+      aud: "npm:registry.npmjs.org"
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
+  before_script:
+    - npm install -g npm@11
+    - npm ci
   script:
-    - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" >> .npmrc
     - npm run release

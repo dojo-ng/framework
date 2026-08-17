@@ -1,5 +1,15 @@
 # @dojo-ng/framework changelog
 
+## 0.3.1
+
+### Patch Changes
+
+- CI release job now publishes via npm Trusted Publishing (OIDC) instead of a long-lived
+  bypass-2FA token. npm is restricting bypass-2FA tokens to staged-publish-only starting
+  January 2027; OIDC has no token to expire or rotate and needs no account-security
+  workaround. The `release` job requests a GitLab CI OIDC token audienced to
+  `npm:registry.npmjs.org`, and npm's publish flow picks it up automatically.
+
 ## Unreleased
 
 - **Real-browser smoke test layer** (closes the last piece of #127). The golden
