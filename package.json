@@ -1,0 +1,32 @@
+{
+  "name": "dojo-ng-framework",
+  "private": true,
+  "license": "BSD-3-Clause",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "overrides": {
+    "errorstacks": "2.4.1"
+  },
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:browser": "npm run test:browser --workspaces --if-present",
+    "lint": "eslint packages/*/src packages/*/test packages/*/smoke",
+    "check-pack": "python3 check_pack.py",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.0",
+    "@eslint/js": "^10.0.1",
+    "@web/test-runner": "^1.0.0",
+    "@web/test-runner-playwright": "^1.0.0",
+    "eslint": "^10.6.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "^8.63.0"
+  }
+}
