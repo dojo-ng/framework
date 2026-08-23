@@ -21,7 +21,7 @@ lint:
 test:
   <<: *node
   stage: test
-  script: npm test          # build + 2 smoke + 47 golden
+  script: npm test          # per package: build + 2 smoke + 61 golden
 
 test:browser:
   stage: test
@@ -40,4 +40,5 @@ pack:
   stage: test
   script:
     - npm run build
-    - npm pack --dry-run
+    - npm pack --dry-run --workspaces
+    - npm run check-pack

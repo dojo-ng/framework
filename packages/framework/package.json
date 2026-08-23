@@ -41,27 +41,11 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src test smoke",
     "smoke": "npm run build && node smoke/has.mjs && node smoke/tsx.mjs",
     "test:golden": "npm run build && node --test test/vdom.test.mjs test/factories.test.mjs",
     "bench": "npm run build && node test/bench.mjs",
     "test": "npm run build && node smoke/has.mjs && node smoke/tsx.mjs && node --test test/vdom.test.mjs test/factories.test.mjs",
     "test:browser": "npm run build && web-test-runner",
-    "changeset": "changeset",
-    "version-packages": "changeset version",
-    "release": "changeset publish",
     "prepublishOnly": "npm run build"
-  },
-  "overrides": {
-    "errorstacks": "2.4.1"
-  },
-  "devDependencies": {
-    "@changesets/cli": "^2.27.0",
-    "@eslint/js": "^10.0.1",
-    "@web/test-runner": "^1.0.0",
-    "@web/test-runner-playwright": "^1.0.0",
-    "eslint": "^10.6.0",
-    "typescript": "6.0.3",
-    "typescript-eslint": "^8.63.0"
   }
 }

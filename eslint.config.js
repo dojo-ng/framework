@@ -18,12 +18,12 @@ const unusedVarsOptions = {
 
 export default tseslint.config(
 	{
-		ignores: ["dist/", "node_modules/"],
+		ignores: ["packages/*/dist/", "node_modules/"],
 	},
 	js.configs.recommended,
 	{
 		// The TypeScript renderer source.
-		files: ["src/**/*.ts"],
+		files: ["packages/*/src/**/*.ts"],
 		extends: [tseslint.configs.recommended],
 		rules: {
 			"@typescript-eslint/no-unused-vars": ["error", unusedVarsOptions],
@@ -37,7 +37,7 @@ export default tseslint.config(
 	{
 		// Node test/smoke scripts: run under `node --test` / `node`, not type-checked here, so
 		// no-undef would false-positive on Node globals — turn it off (mirrors the components config).
-		files: ["test/**/*.mjs", "smoke/**/*.mjs"],
+		files: ["packages/*/test/**/*.mjs", "packages/*/smoke/**/*.mjs"],
 		rules: {
 			"no-undef": "off",
 			"no-unused-vars": ["error", unusedVarsOptions],
