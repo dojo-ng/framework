@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dojo-ng.dev/schemas/websocket-envelope.schema.json",
+  "title": "Dojo NG WebSocket envelope",
+  "description": "The wire frame WSDispatcher (websocket-spec.md T4) sends and receives, specified independently of the TypeScript types that bind it (src/wsdispatcher.ts's Envelope interface is one binding of this, not the source of truth). Documented as a T4-local working assumption pending T5's own measurement — see the dated note in websocket-spec.md T5 for the byte-count comparison against a positional-array alternative and why this object shape was kept. Every field is always present; there is no undefined-vs-missing distinction on the wire, only JSON-representable values, so this survives JSON.stringify/json.loads round-trips without losing meaning.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["action", "id", "data"],
+  "properties": {
+    "action": {
+      "description": "Routes dispatch. \"ping\" arms the heartbeat watchdog (inbound only). \"event\" carries a named payload published on pub/sub in either direction. \"call\" is a correlated request/response, matched by id.",
+      "type": "string",
+      "enum": ["ping", "event", "call"]
+    },
+    "id": {
+      "description": "0 for \"ping\" and \"event\" frames, which aren't correlated. A positive integer for \"call\", assigned by the caller and echoed back unchanged on the matching response.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "data": {
+      "description": "Action-specific payload. Any JSON value for \"ping\" and \"call\"; a fixed shape for \"event\", refined below."
+    }
+  },
+  "if": {
+    "properties": { "action": { "const": "event" } }
+  },
+  "then": {
+    "properties": {
+      "data": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["event", "params"],
+        "properties": {
+          "event": {
+            "description": "The pub/sub topic this frame publishes to (inbound) or was published from (outbound).",
+            "type": "string"
+          },
+          "params": {
+            "description": "The payload delivered to pub/sub subscribers under `event`. Any JSON value."
+          }
+        }
+      }
+    }
+  }
+}
