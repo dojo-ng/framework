@@ -12,6 +12,7 @@
   "license": "BSD-3-Clause",
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.json",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test test/queue.test.mjs"
   }
 }
