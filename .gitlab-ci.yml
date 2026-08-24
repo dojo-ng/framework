@@ -11,7 +11,14 @@ default:
 typecheck:
   <<: *node
   stage: test
-  script: npm run typecheck
+  # A cross-package import (websocket -> pubsub, since websocket-spec.md T4) resolves via the
+  # imported package's dist/index.d.ts, and tsc --noEmit writes no dist of its own — so a package
+  # whose dependency hasn't been built first fails to resolve it. `build` first, same as `pack`
+  # already does for the same reason; npm's workspace command ordering builds dependencies before
+  # dependents, so this doesn't need to be sequenced by hand.
+  script:
+    - npm run build
+    - npm run typecheck
 
 lint:
   <<: *node
