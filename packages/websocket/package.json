@@ -10,6 +10,9 @@
     "dist"
   ],
   "license": "BSD-3-Clause",
+  "dependencies": {
+    "@dojo-ng/pubsub": "^0.1.0"
+  },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",

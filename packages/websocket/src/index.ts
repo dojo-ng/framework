@@ -2,3 +2,5 @@
 // from this file (websocket-spec.md T2) — everything else built here is meant to be used directly.
 export { WSocket, ReadyState, SendState } from "./wsocket.js";
 export type { WSocketEventMap } from "./wsocket.js";
+export { WSDispatcher } from "./wsdispatcher.js";
+export type { WSDispatcherOptions } from "./wsdispatcher.js";

@@ -2,7 +2,8 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "dist"
+    "outDir": "dist",
+    "lib": ["ES2020", "DOM", "ES2024.Promise"]
   },
   "include": ["src/**/*.ts"]
 }
