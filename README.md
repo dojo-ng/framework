@@ -10,6 +10,8 @@ anywhere in it, and nothing here registers a custom element.
 | Package | Description |
 |---|---|
 | [`@dojo-ng/framework`](packages/framework/README.md) | Clean-room v()-only VDOM renderer — ESM, property-first for custom elements, O(n) keyed reconciliation |
+| [`@dojo-ng/pubsub`](packages/pubsub/README.md) | Publish/subscribe facade backed by an external store — namespaced topics, async-iterable subscriptions |
+| [`@dojo-ng/websocket`](packages/websocket/README.md) | WebSocket client — raw-socket wrapper plus a dispatcher with request/response correlation, offline queueing, reconnect with backoff, and a heartbeat watchdog |
 
 Each package's own README has its build/test instructions and API.
 

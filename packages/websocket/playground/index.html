@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>@dojo-ng/websocket — playground</title>
+<!--
+  websocket-spec.md T8. Run against the local echo server:
+      cd "Dojo NG/framework/packages/websocket" && npm run playground
+      -> http://localhost:8901/packages/websocket/playground/index.html
+  (A module + import map won't load over file://; the echo server serves this page over http
+  specifically so it does.)
+
+  What this demonstrates, per T8's own list:
+  - Queued sends while disconnected: click "Simulate disconnect", then "Send call" a few times —
+    they queue. Click "Simulate connect" and watch them flush, in order, on the log below.
+  - A visible reconnect with backoff: click "Kill connection (server drop)". Unlike "Simulate
+    disconnect" (an explicit client close, which schedules no reconnect at all — T4 proves that),
+    this asks the SERVER to drop the raw connection with no handshake, so WSDispatcher goes through
+    its real Fibonacci-backoff reconnect path. The countdown below is a locally-estimated display
+    only, computed from the same published step table — WSDispatcher doesn't expose its internal
+    counter, so this mirrors it rather than reading it.
+  - The heartbeat watchdog: click "Pause heartbeat (server)", then wait — no PING arrives, the 40s
+    watchdog fires, the client closes and reopens through the same backoff path 2s later. The
+    connection itself never closed from the server's side; only the client noticed the silence.
+  - simulate() driving both queued-sends and the reconnect demos, via the two "Simulate ___" buttons.
+-->
+<style>
+	body { font: 15px/1.5 system-ui, sans-serif; margin: 2rem; max-width: 44rem; }
+	h1 { font-size: 1.2rem; }
+	.muted { color: #666; font-size: 0.9em; }
+	button { font: inherit; padding: 0.35rem 0.7rem; margin: 0.15rem 0.35rem 0.15rem 0; }
+	fieldset { margin: 1rem 0; }
+	legend { font-weight: 600; }
+	#status { padding: 0.6rem 0.9rem; border-radius: 6px; background: #f3f3f3; margin: 1rem 0; }
+	#status.open { background: #e6f4ea; }
+	#status.closed { background: #fdecea; }
+	#log { height: 16rem; overflow-y: auto; background: #111; color: #ddd; font: 12.5px/1.5 ui-monospace, monospace; padding: 0.6rem 0.8rem; border-radius: 6px; }
+	#log div { white-space: pre-wrap; }
+	.dir-out { color: #7dd3fc; }
+	.dir-in { color: #86efac; }
+	.dir-sys { color: #fde68a; }
+</style>
+</head>
+<body>
+<h1>@dojo-ng/websocket — playground</h1>
+<p class="muted">Against the local echo server. See the page source for what each control demonstrates.</p>
+
+<div id="status">connecting…</div>
+
+<fieldset>
+	<legend>Client (WSDispatcher)</legend>
+	<button id="btn-call">Send call</button>
+	<button id="btn-event">Send event</button>
+	<button id="btn-sim-disconnect">Simulate disconnect</button>
+	<button id="btn-sim-connect">Simulate connect</button>
+</fieldset>
+
+<fieldset>
+	<legend>Server (things a client can't do to itself)</legend>
+	<button id="btn-kill">Kill connection (server drop)</button>
+	<button id="btn-pause">Pause heartbeat (server)</button>
+	<button id="btn-resume">Resume heartbeat (server)</button>
+</fieldset>
+
+<div id="log"></div>
+
+<script type="importmap">
+{
+	"imports": {
+		"@dojo-ng/websocket": "../dist/index.js",
+		"@dojo-ng/pubsub": "../../pubsub/dist/index.js"
+	}
+}
+</script>
+
+<script type="module">
+	import { WSDispatcher } from "@dojo-ng/websocket";
+
+	const statusEl = document.getElementById("status");
+	const logEl = document.getElementById("log");
+
+	function log(direction, text) {
+		const line = document.createElement("div");
+		line.className = `dir-${direction}`;
+		const ts = new Date().toISOString().slice(11, 23);
+		line.textContent = `${ts}  ${text}`;
+		logEl.appendChild(line);
+		logEl.scrollTop = logEl.scrollHeight;
+	}
+
+	// Display-only estimate of WSDispatcher's backoff, mirrored from websocket-spec.md T4 — the
+	// dispatcher doesn't expose its internal reopen counter, so this tracks close/open locally to
+	// show roughly what to expect, not to control anything.
+	const TIMEOUT_BASE_S = 15;
+	const TIMEOUT_STEP = [0, 0, 0, 0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233];
+	let reopenAttempt = 0;
+	let explicitlyClosing = false;
+	let countdownTimer = null;
+
+	function showBackoffEstimate() {
+		clearInterval(countdownTimer);
+		const step = Math.min(reopenAttempt, TIMEOUT_STEP.length - 1);
+		let remaining = TIMEOUT_STEP[step] + TIMEOUT_BASE_S;
+		reopenAttempt++;
+		const render = () => {
+			statusEl.textContent = `closed — reconnecting in ~${remaining}s (estimate, attempt ${reopenAttempt})`;
+		};
+		render();
+		countdownTimer = setInterval(() => {
+			remaining--;
+			if (remaining <= 0) {
+				clearInterval(countdownTimer);
+				statusEl.textContent = "closed — reconnecting now (estimate)";
+				return;
+			}
+			render();
+		}, 1000);
+	}
+
+	let nextCallId = 1;
+
+	const dispatcher = new WSDispatcher({
+		url: `ws://${location.hostname}:8901/ws`,
+		onConnect: () => [{ action: "event", id: 0, data: { event: "identify", params: { who: "playground" } } }],
+	});
+
+	dispatcher.socket.addEventListener("open", () => {
+		clearInterval(countdownTimer);
+		reopenAttempt = 0;
+		statusEl.className = "open";
+		statusEl.textContent = "open";
+		log("sys", "socket open");
+	});
+	dispatcher.socket.addEventListener("close", () => {
+		statusEl.className = "closed";
+		log("sys", "socket closed");
+		clearInterval(countdownTimer);
+		if (explicitlyClosing) {
+			// simulate('disconnect') is a client-initiated close, which T4 proves schedules no
+			// reconnect at all — showing a countdown here would be actively misleading.
+			statusEl.textContent = "closed — explicit disconnect, no reconnect scheduled";
+			explicitlyClosing = false;
+		} else {
+			showBackoffEstimate();
+		}
+	});
+	dispatcher.socket.addEventListener("message", (e) => log("in", `recv  ${e.detail.data}`));
+
+	dispatcher.pubsub.subscribe("server:welcome", (params) => log("in", `event server:welcome ${JSON.stringify(params)}`), { replay: false });
+
+	dispatcher.open();
+
+	document.getElementById("btn-call").addEventListener("click", async () => {
+		const id = nextCallId++;
+		const payload = { hello: "playground", id };
+		log("out", `call#${id}  ${JSON.stringify(payload)}`);
+		const reply = await dispatcher.call(payload);
+		log("in", `call#${id} reply  ${JSON.stringify(reply)}`);
+	});
+
+	document.getElementById("btn-event").addEventListener("click", () => {
+		const payload = { event: "playground:ping", params: { at: Date.now() } };
+		log("out", `event  ${JSON.stringify(payload)}`);
+		dispatcher.pubsub.publish("notify:event", payload);
+	});
+
+	document.getElementById("btn-sim-disconnect").addEventListener("click", () => {
+		log("sys", "simulate('disconnect') — explicit client close, no reconnect scheduled");
+		explicitlyClosing = true;
+		dispatcher.simulate("disconnect");
+	});
+	document.getElementById("btn-sim-connect").addEventListener("click", () => {
+		log("sys", "simulate('connect')");
+		dispatcher.simulate("connect");
+	});
+
+	document.getElementById("btn-kill").addEventListener("click", () => {
+		log("sys", "asking the server to drop the raw connection (no handshake)");
+		fetch("/control/kill", { method: "POST" });
+	});
+	document.getElementById("btn-pause").addEventListener("click", () => {
+		log("sys", "asking the server to stop sending PING — watch for the ~40s watchdog");
+		fetch("/control/pause-heartbeat", { method: "POST" });
+	});
+	document.getElementById("btn-resume").addEventListener("click", () => {
+		log("sys", "asking the server to resume PING");
+		fetch("/control/resume-heartbeat", { method: "POST" });
+	});
+</script>
+</body>
+</html>

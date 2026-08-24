@@ -24,6 +24,30 @@ independently — there is no dependency edge across the repo boundary in either
 See `components/docs/state-and-framework-analysis.md` for the full store/pub-sub/context design
 writeup; its pub/sub section notes that this package now lives here.
 
+### Namespaced topics
+
+Topics nest on a configured separator (`createPubSub({ separator })`, default `":"`). Publishing
+`a:b:c` notifies subscribers of `a:b:c`, then `a:b`, then `a` — most-specific first — so a
+subscriber to `a` hears everything under it without knowing the full topic tree in advance. The
+handler's second argument is the topic actually published, not the one subscribed to, since a
+namespace subscriber otherwise has no way to tell descendants apart:
+
+```ts
+const ps = createPubSub();
+ps.subscribe("chat", (payload, topic) => console.log(topic, payload)); // hears chat, chat:room-1, chat:room-1:typing, ...
+ps.publish("chat:room-1:typing", { user: "ana" });
+```
+
+`seq` (visible through `getLast`, and through the exposed `store`) is a single counter shared
+across every topic in an instance, not per-topic — ordering across topics is exactly what a
+namespace subscriber needs, and a per-topic counter can't provide it. Replay for a namespace
+subscriber, and `getLast` on one, both resolve to the single most recent entry anywhere at or
+under that topic (by that shared `seq`), not one value per descendant — flooding a subscriber
+with every child's last value on every subscribe would defeat the point of a quiet "start me off
+with the current state" default. A throwing subscriber never stops delivery to the others; the
+error is rethrown asynchronously instead of swallowed or left to break the topic for everyone
+else.
+
 ### Async-iterable subscriptions
 
 `pubsub.subscribeAsync(topic, options?)` is an async-iterable view of `subscribe`: `for await`
