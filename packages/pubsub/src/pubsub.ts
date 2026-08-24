@@ -1,3 +1,7 @@
+import { subscribeAsync as toAsyncIterable, type AsyncSubscribeOptions } from "./subscribe-async.js";
+
+export type { AsyncSubscribeOptions } from "./subscribe-async.js";
+
 // Duplicated from components/packages/store/src/types.ts, deliberately, not a shortcut. framework
 // must not depend on components (that would point the lower layer at the higher one, and it
 // wouldn't resolve at all until components publishes to npm). Because TypeScript structural typing
@@ -50,6 +54,13 @@ export interface PubSub {
 		handler: (payload: T, topic: string) => void,
 		options?: SubscribeOptions,
 	): () => void;
+	/**
+	 * An async-iterable view of `subscribe`: `for await` receives every value published to `topic`
+	 * (including namespace descendants, same as `subscribe`), in order, starting from the moment
+	 * this is called — not replayed, and not deferred to the first loop iteration. See
+	 * `AsyncSubscribeOptions` and the README for the slow-consumer buffer bound.
+	 */
+	subscribeAsync<T = unknown>(topic: string, options?: AsyncSubscribeOptions): AsyncIterable<T>;
 	/** The most recent payload published at or under a topic, or undefined. */
 	getLast<T = unknown>(topic: string): T | undefined;
 	/** The backing store, for integration with StoreController/context. */
@@ -139,6 +150,19 @@ export function createPubSub(options?: PubSubOptions): PubSub {
 		previous = state;
 	});
 
+	const subscribe: PubSub["subscribe"] = (topic, handler, subscribeOptions) => {
+		const replay = subscribeOptions?.replay ?? true;
+		let set = listeners.get(topic);
+		if (!set) listeners.set(topic, (set = new Set()));
+		const h = handler as (value: unknown, topic: string) => void;
+		set.add(h);
+		if (replay) {
+			const found = mostRecentAtOrUnder(store.getState(), topic, separator);
+			if (found) notify(h, found.entry.value, found.topic);
+		}
+		return () => { set!.delete(h); };
+	};
+
 	return {
 		store,
 		publish(topic, payload) {
@@ -147,17 +171,9 @@ export function createPubSub(options?: PubSubOptions): PubSub {
 				[topic]: { value: payload, seq: ++seq },
 			}));
 		},
-		subscribe(topic, handler, options) {
-			const replay = options?.replay ?? true;
-			let set = listeners.get(topic);
-			if (!set) listeners.set(topic, (set = new Set()));
-			const h = handler as (value: unknown, topic: string) => void;
-			set.add(h);
-			if (replay) {
-				const found = mostRecentAtOrUnder(store.getState(), topic, separator);
-				if (found) notify(h, found.entry.value, found.topic);
-			}
-			return () => { set!.delete(h); };
+		subscribe,
+		subscribeAsync(topic, asyncOptions) {
+			return toAsyncIterable(subscribe, topic, asyncOptions);
 		},
 		getLast(topic) {
 			return mostRecentAtOrUnder(store.getState(), topic, separator)?.entry.value as never;

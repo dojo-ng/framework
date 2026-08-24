@@ -23,3 +23,33 @@ independently — there is no dependency edge across the repo boundary in either
 
 See `components/docs/state-and-framework-analysis.md` for the full store/pub-sub/context design
 writeup; its pub/sub section notes that this package now lives here.
+
+### Async-iterable subscriptions
+
+`pubsub.subscribeAsync(topic, options?)` is an async-iterable view of `subscribe`: `for await`
+receives every value published to `topic` — including namespace descendants, the same match rule as
+`subscribe` — in the order they were published. It subscribes immediately when called, not deferred
+to the first loop iteration, so nothing published between calling it and starting the loop is missed.
+It never replays; a late subscriber only sees future publishes, matching `for await`'s "start
+listening now" expectation rather than a cache read.
+
+Ending the iteration also tears down the subscription — via an explicit `AbortSignal` passed as
+`options.signal`, or automatically when a `for await` loop exits through `break`, `return`, or a
+thrown error (the standard `AsyncIterator.return()` protocol). Either way, nothing is left listening
+after the loop stops.
+
+**A slow consumer — one that hasn't called `.next()` yet when new values arrive — buffers up to
+`options.bufferSize` values (default 256, `DEFAULT_BUFFER_SIZE`) before the oldest are dropped to
+make room for new ones.** This bound exists on purpose: an unbounded buffer here is exactly the
+"grew unbounded" bug a real event-driven consumer hit before this had a fixed window (see
+`websocket-spec.md` T9's Perry caveat). Pick a larger `bufferSize` for a topic where losing an old
+event matters more than memory; the default is a reasonable middle ground for UI-facing streams,
+not a value to treat as load-bearing for every use.
+
+```ts
+const controller = new AbortController();
+for await (const payload of pubsub.subscribeAsync("chat:message", { signal: controller.signal })) {
+	render(payload);
+}
+// elsewhere: controller.abort() ends the loop and unsubscribes.
+```
