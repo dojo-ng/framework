@@ -1,11 +1,9 @@
-// websocket-spec.md T6: the async-iterable subscription surface. `for await` works with no
-// library, and this is also the decision that makes T7 (Observable interop) nearly free — RxJS
-// ships `from(asyncIterable)`, so nothing else needs writing for that direction once this exists.
+// The async-iterable subscription surface. `for await` works with no library, and this also
+// makes Observable interop nearly free: RxJS ships `from(asyncIterable)`, so nothing else needs writing for that direction once this exists.
 //
 // Takes `subscribe` as a parameter rather than a `PubSub` instance so the core logic is testable
 // against a plain counting fake, without needing to exercise the real store/notify machinery to
-// prove a subscription was actually torn down — see the honest-verification note in
-// websocket-spec.md T6's own dated entry.
+// prove a subscription was actually torn down.
 import type { SubscribeOptions } from "./pubsub.js";
 
 /** Default: how many published values a slow consumer can fall behind by. See the README. */
@@ -17,8 +15,8 @@ export interface AsyncSubscribeOptions {
 	/**
 	 * How many published values a slow consumer (one that hasn't called `.next()` yet) can be
 	 * behind by before the oldest are dropped to make room for new ones. Default
-	 * `DEFAULT_BUFFER_SIZE` (256). See the README for why this exists — an unbounded buffer here is
-	 * exactly the "grew unbounded" bug the Perry caveat in T9 names.
+	 * `DEFAULT_BUFFER_SIZE` (256). See the README for why this exists: an unbounded buffer lets a
+	 * consumer that falls behind grow its memory without limit.
 	 */
 	bufferSize?: number;
 }

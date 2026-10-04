@@ -1,16 +1,15 @@
-// Ported from app3/core/socket/src/WebSocket.ts (216 lines, websocket-spec.md T3), de-Holmesed:
-// `logSystem` calls dropped, `Evented` replaced with `EventTarget`, and `getWS.ts`'s
-// `MozWebSocket` fallback dropped entirely (dead for over a decade). `WebSocket` is read as the
+// A thin wrapper over the browser `WebSocket`, exposed as an `EventTarget`. There is no
+// `MozWebSocket` fallback (dead for over a decade). `WebSocket` is read as the
 // global, at call time rather than a module-scope import — that's also what lets a test substitute
 // a fake one via `globalThis.WebSocket` with no constructor injection seam to design around.
 //
 // Four behaviors carried forward on purpose. Each is a real bug someone would otherwise
 // reintroduce by "simplifying" this file once it looks like it's just wrapping `new WebSocket()`:
 //
-// - Out-of-sync detection (`send`, below): app3's `is_open()` re-checked `socket.readyState` on
-//   every call, which made its own out-of-sync check in `send()` unreachable dead code — `is_open`
-//   already returned false for the same reason before `send()` ever got there. Fixed here by
-//   making `isOpen()` reflect only OUR tracked state (set on `onopen`, cleared by `#handleClose`),
+// - Out-of-sync detection (`send`, below): if `isOpen()` re-checked `socket.readyState` on every
+//   call, the out-of-sync check in `send()` would be unreachable dead code — `isOpen` would
+//   already return false for the same reason before `send()` got there. So `isOpen()` reflects
+//   only OUR tracked state (set on `onopen`, cleared by `#handleClose`),
 //   so `send()`'s live re-check of `socket.readyState` is the one thing that actually catches a
 //   socket whose `readyState` moved to CLOSING/CLOSED before its own `onclose`/`onerror` fired —
 //   which is legal per the WebSocket spec and is exactly the state this check exists to catch.
@@ -23,7 +22,7 @@
 // - `open(force)` semantics and handler wiring inside `onopen`: with no existing socket, or with
 //   `force: true`, any prior socket is torn down and a fresh one opened. `message`/`error`/`close`
 //   handlers are wired only once `onopen` fires, which is also why a pre-open error goes straight
-//   to `#handleClose` with no `error` event — the original's asymmetry, preserved because a caller
+//   to `#handleClose` with no `error` event — an asymmetry kept on purpose, because a caller
 //   distinguishing "never connected" from "connected, then errored" depends on it.
 
 export enum ReadyState {

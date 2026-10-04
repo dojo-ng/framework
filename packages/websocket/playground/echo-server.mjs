@@ -1,13 +1,13 @@
-// Local echo server for the @dojo-ng/websocket playground (websocket-spec.md T8). Not part of the
+// Local echo server for the @dojo-ng/websocket playground. Not part of the
 // package — dev tooling only, run with `npm run playground`. Serves the playground's static files
 // (including both packages' dist/ output, so the browser's import map resolves against real files)
-// and a WebSocket endpoint speaking the T5 envelope ({action, id, data}), plus two HTTP control
+// and a WebSocket endpoint speaking the envelope ({action, id, data}), plus two HTTP control
 // routes that do things a client can never legitimately do to itself, which is the whole point:
 //
 // - POST /control/kill — terminates the raw connection with no close handshake, simulating an
 //   unexpected drop. WSDispatcher never called close() itself, so this is what actually exercises
 //   the Fibonacci-backoff reconnect path — simulate("disconnect") does NOT: that's an explicit
-//   client close, which T4 proves schedules no reconnect at all.
+//   client close, which schedules no reconnect at all (the dispatcher tests prove it).
 // - POST /control/pause-heartbeat — stops this server sending PING, without closing the socket.
 //   Exercises the client's 40s watchdog: close, wait 2s, reopen through the same backoff path.
 //

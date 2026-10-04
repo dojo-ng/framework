@@ -1,8 +1,8 @@
 /**
- * The async-iterable subscription surface (websocket-spec.md T6). Core logic tested against a
+ * The async-iterable subscription surface. Core logic tested against a
  * counting fake `subscribe` (so "the underlying subscription was removed" can be asserted as an
  * actual count, not inferred from "the loop stopped" — a loop can end while leaking the
- * subscription, which is the bug this guards, per the spec's own honest-verification note), plus
+ * subscription, which is the bug this guards), plus
  * one integration test against the real `createPubSub()`. Pure — no DOM.
  *
  * Run: node --test test/subscribe-async.test.mjs

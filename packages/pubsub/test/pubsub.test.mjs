@@ -1,7 +1,7 @@
 /**
  * Pub/sub: subscribe, publish, replay-to-late-subscriber, and getLast. Pure — no DOM. Ported
- * from components/tests/unit/pubsub.test.js (Vitest) to node --test; every case preserved
- * (framework-monorepo-spec.md C3). Namespaced-delivery cases (websocket-spec.md T1) follow.
+ * from components/tests/unit/pubsub.test.js (Vitest) to node --test; every case preserved.
+ * Namespaced-delivery cases follow.
  *
  * Run: node --test test/pubsub.test.mjs
  */

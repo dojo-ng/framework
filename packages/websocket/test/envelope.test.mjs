@@ -1,5 +1,5 @@
 /**
- * The envelope schema (websocket-spec.md T5) against frames actually produced by T4's own tests
+ * The envelope schema against frames actually produced by the dispatcher's own tests
  * — a captured frame of each action type, validated with ajv (a real JSON Schema validator, not a
  * hand-rolled check, since the whole point of the schema is that any language's real validator can
  * point at it). Also checks the JSON.stringify round-trip is lossless, per the "no
@@ -42,7 +42,7 @@ for (const [name, frame] of Object.entries(capturedFrames)) {
 }
 
 test("schema rejects a frame with an unknown action", () => {
-	const ok = validate({ action: "manhole", id: 0, data: null });
+	const ok = validate({ action: "unknown", id: 0, data: null });
 	assert.equal(ok, false);
 });
 

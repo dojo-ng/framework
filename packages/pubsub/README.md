@@ -64,9 +64,8 @@ after the loop stops.
 
 **A slow consumer — one that hasn't called `.next()` yet when new values arrive — buffers up to
 `options.bufferSize` values (default 256, `DEFAULT_BUFFER_SIZE`) before the oldest are dropped to
-make room for new ones.** This bound exists on purpose: an unbounded buffer here is exactly the
-"grew unbounded" bug a real event-driven consumer hit before this had a fixed window (see
-`websocket-spec.md` T9's Perry caveat). Pick a larger `bufferSize` for a topic where losing an old
+make room for new ones.** This bound exists on purpose: with an unbounded buffer, a consumer
+that falls behind holds every value published since, and its memory grows without limit. Pick a larger `bufferSize` for a topic where losing an old
 event matters more than memory; the default is a reasonable middle ground for UI-facing streams,
 not a value to treat as load-bearing for every use.
 

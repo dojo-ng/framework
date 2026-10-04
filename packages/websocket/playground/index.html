@@ -5,17 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>@dojo-ng/websocket — playground</title>
 <!--
-  websocket-spec.md T8. Run against the local echo server:
+  Run against the local echo server:
       cd "Dojo NG/framework/packages/websocket" && npm run playground
       -> http://localhost:8901/packages/websocket/playground/index.html
   (A module + import map won't load over file://; the echo server serves this page over http
   specifically so it does.)
 
-  What this demonstrates, per T8's own list:
+  What this demonstrates:
   - Queued sends while disconnected: click "Simulate disconnect", then "Send call" a few times —
     they queue. Click "Simulate connect" and watch them flush, in order, on the log below.
   - A visible reconnect with backoff: click "Kill connection (server drop)". Unlike "Simulate
-    disconnect" (an explicit client close, which schedules no reconnect at all — T4 proves that),
+    disconnect" (an explicit client close, which schedules no reconnect at all),
     this asks the SERVER to drop the raw connection with no handshake, so WSDispatcher goes through
     its real Fibonacci-backoff reconnect path. The countdown below is a locally-estimated display
     only, computed from the same published step table — WSDispatcher doesn't expose its internal
@@ -89,7 +89,7 @@
 		logEl.scrollTop = logEl.scrollHeight;
 	}
 
-	// Display-only estimate of WSDispatcher's backoff, mirrored from websocket-spec.md T4 — the
+	// Display-only estimate of WSDispatcher's backoff, mirrored from wsdispatcher.ts — the
 	// dispatcher doesn't expose its internal reopen counter, so this tracks close/open locally to
 	// show roughly what to expect, not to control anything.
 	const TIMEOUT_BASE_S = 15;
@@ -137,7 +137,7 @@
 		log("sys", "socket closed");
 		clearInterval(countdownTimer);
 		if (explicitlyClosing) {
-			// simulate('disconnect') is a client-initiated close, which T4 proves schedules no
+			// simulate('disconnect') is a client-initiated close, which schedules no
 			// reconnect at all — showing a countdown here would be actively misleading.
 			statusEl.textContent = "closed — explicit disconnect, no reconnect scheduled";
 			explicitlyClosing = false;

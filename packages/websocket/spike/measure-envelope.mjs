@@ -1,11 +1,9 @@
 /**
- * websocket-spec.md T5's measurement step. Not part of the package (not in package.json "files",
- * not run by `npm test`) — a one-time spike whose output is transcribed into the dated note under
- * T5 in websocket-spec.md. Kept here for reproducibility, not as ongoing tooling.
+ * The measurement behind the envelope shape. Not part of the package (not in package.json "files",
+ * not run by `npm test`) — a one-time spike, kept here for reproducibility, not as ongoing tooling.
  *
- * Compares the object envelope T4 actually uses ({action, id, data}) against app3's original
- * positional-array shape ([actionCode, id, data] — 3-tuple, since T4 never uses app3's 4th "target"
- * field) over a representative session, compressed both ways with raw DEFLATE and a per-message
+ * Compares the object envelope the dispatcher uses ({action, id, data}) against a
+ * positional-array shape ([actionCode, id, data]) over a representative session, compressed both ways with raw DEFLATE and a per-message
  * Z_SYNC_FLUSH boundary — which is what permessage-deflate (RFC 7692) actually does on the wire: a
  * flush point per message, but the LZ77 window/dictionary carries over between messages unless
  * "no context takeover" was negotiated, which is not the default in most stacks. That carried-over
@@ -21,14 +19,14 @@ import { constants } from "node:zlib";
 const ACTION_CODE = { ping: 0, event: 1, call: 2 };
 
 /**
- * A representative session: T4's own test frames, repeated and varied into a plausible temporal
+ * A representative session: the dispatcher's own test frames, repeated and varied into a plausible temporal
  * mix rather than a single sample of each. 120 frames — order matters (it's what a compression
  * context sees), not just the frame set.
  */
 function buildSession() {
 	const frames = [];
 
-	// Identity handshake, sent once at connect (websocket-spec.md T4's onConnect hook).
+	// Identity handshake, sent once at connect (the onConnect hook).
 	frames.push({ action: "event", id: 0, data: { event: "identify", params: { who: "session-1" } } });
 
 	let nextId = 1;

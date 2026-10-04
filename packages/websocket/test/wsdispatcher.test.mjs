@@ -1,6 +1,6 @@
 /**
- * WSDispatcher against T3's fake socket, with fake timers for the backoff/heartbeat cases
- * (websocket-spec.md T4). Every case here is a named carried behavior, and every one is written to
+ * WSDispatcher against the fake socket, with fake timers for the backoff/heartbeat cases.
+ * Every case here is a named behavior, and every one is written to
  * fail without its feature — see the source comments below for how each discriminates.
  *
  * Run: node --test test/wsdispatcher.test.mjs
@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { WSDispatcher } from "../dist/wsdispatcher.js";
 import { withFakeWebSocketAsync } from "./helpers/fake-websocket.mjs";
 
-// The published Fibonacci step table from websocket-spec.md T4, copied literally rather than
+// The Fibonacci step table, copied literally rather than
 // imported from the module under test — importing the module's own constant would let a wrong
 // table pass against itself.
 const TIMEOUT_BASE_S = 15;

@@ -6,8 +6,7 @@ export type { AsyncSubscribeOptions } from "./subscribe-async.js";
 // must not depend on components (that would point the lower layer at the higher one, and it
 // wouldn't resolve at all until components publishes to npm). Because TypeScript structural typing
 // doesn't care which declaration a shape came from, a PubSub built here still satisfies
-// StoreController's parameter in components with no adapter and no cast — see
-// framework-monorepo-spec.md C2 for the verification that proves that claim.
+// StoreController's parameter in components with no adapter and no cast.
 export interface ReadableStore<T> {
 	getState(): T;
 	subscribe(listener: (state: T, previous: T) => void): () => void;
@@ -24,8 +23,8 @@ export interface SubscribeOptions {
 export interface PubSubOptions {
 	/**
 	 * The namespace separator. Publishing `a<sep>b<sep>c` notifies subscribers of `a<sep>b<sep>c`,
-	 * then `a<sep>b`, then `a`, most-specific first — one fixed separator per instance, rather than
-	 * app3's per-topic `:`-or-`/` guess, which behaves surprisingly on a topic containing both.
+	 * then `a<sep>b`, then `a`, most-specific first. One fixed separator per instance, rather than guessing `:` or `/`
+	 * per topic, which behaves surprisingly on a topic containing both.
 	 * Default `":"`.
 	 */
 	separator?: string;
@@ -67,10 +66,10 @@ export interface PubSub {
 	readonly store: ReadableStore<Topics>;
 }
 
-// Hand-rolled in place of zustand/vanilla's createStore (framework-monorepo-spec.md C4) — the
+// Hand-rolled in place of zustand/vanilla's createStore — the
 // framework repo has zero runtime deps by design, and none of zustand's actual semantics (the
 // set/get/api passed to the initializer, shallow-merge setState, the Object.is change guard) were
-// ever relied on here; see the spec's C4 note for the case-by-case audit. `subscribe` still calls
+// ever relied on here. `subscribe` still calls
 // listeners with `(state, previous)`: nothing INTERNAL below reads the second argument (the notify
 // loop tracks its own `previous` in a closure, unchanged from before this rewrite), but
 // `ReadableStore` declares that signature and `StoreController` in components is an external

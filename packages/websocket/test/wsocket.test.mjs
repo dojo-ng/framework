@@ -1,8 +1,7 @@
 /**
  * WSocket against a fake socket (no network). Covers every SendState transition, the
  * readyState-mismatch out-of-sync path, and the two call sites where a stale/still-open socket
- * must have its listeners nulled before `close()` — the reconnect-storm bug (websocket-spec.md
- * T3). Pure — no DOM, no timers.
+ * must have its listeners nulled before `close()` — the reconnect-storm bug. Pure — no DOM, no timers.
  *
  * Run: node --test test/wsocket.test.mjs
  */

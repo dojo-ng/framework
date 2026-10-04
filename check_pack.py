@@ -10,8 +10,8 @@ package's `main`, `module`, and `types` entries are actually present in its own 
 Run from framework/:  python3 check_pack.py
 
 DUPLICATE NOTICE: this file is copied as-is from `components/check_pack.py`. There is no shared
-location between the two repos today, so this is deliberate duplication, not drift by accident —
-see `framework-monorepo-spec.md` task A6. A fix made in one copy needs to be made in the other by
+location between the two repos today, so this is deliberate duplication, not drift by accident.
+A fix made in one copy needs to be made in the other by
 hand; neither repo currently has a mechanism that would catch the two diverging.
 """
 

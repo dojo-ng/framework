@@ -45,7 +45,7 @@ The full renderer closure drags in 14 files that the trimmed one does not:
 `core/vdom.js` instantiates and uses `Registry` internally (`new Registry`,
 `registry.get/has/define` for the `w()`/registry-item resolution path), so
 `Registry` + `RegistryHandler` stay in the renderer keep-set — they are not just
-imports. App-level Registry usage (e.g. registering Dojo 8 widgets in app3) is
+imports. App-level Registry usage (e.g. registering Dojo 8 widgets in an existing app) is
 separate and droppable for a web-components-first app, but that does not remove
 the renderer's own dependency. Dropping `Registry` entirely would require
 patching `vdom` to remove the `w()`/registry resolution path — a deeper,

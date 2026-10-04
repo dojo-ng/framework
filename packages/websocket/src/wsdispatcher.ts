@@ -1,12 +1,9 @@
-// Ported from app3/core/socket/src/socket.ts (350 lines, websocket-spec.md T4). This is the task
-// that carries the value — everything in the proposal's carry list lands here except the
-// transport/envelope registries (Phase 2, deliberately unwritten until Phase 1 meets a real
-// backend). Carried behaviors, each with its own reason:
+// WebSocket message dispatch on top of `WSocket`. Behaviors, each with its own reason:
 //
 // - Request/response correlation (`call`): `#nextId++` into a callback map, resolved by id on the
-//   matching inbound frame. No timeout/reject path — app3 never had one either, and it's not on
-//   the carry list, so a pending call can wait forever on a connection that never responds. Not a
-//   bug to "fix" here; a deliberate fidelity choice, revisit only if Bill asks for it.
+//   matching inbound frame. There is no timeout/reject path, so a pending call can wait forever
+//   on a connection that never responds. This is deliberate and documented; a caller that needs a
+//   limit races the promise against a timer.
 // - Offline send queue (`#drain`): peeks and sends, dequeuing only on a confirmed OKAY send, so a
 //   failed send never drops the message. BUFFERING retries at 50ms; a confirmed send immediately
 //   tries the next one.
@@ -17,30 +14,23 @@
 //   not a bypass. `TIMEOUT_STEP`'s reset-only-on-success rule means a heartbeat failure right after
 //   a fresh open still reopens promptly, but a string of them backs off like any other flapping
 //   connection.
-// - Identity handshake (`onConnect`): app3 hardcoded a SESSID frame built from
-//   `window.hcstatic.sessionid`. Generalized into a caller-supplied hook returning frames to send
-//   first, before the queue flush — the app owns what identity means (DYNLS separation lesson),
-//   this package doesn't know what "who this is" means for any given backend.
+// - Identity handshake (`onConnect`): a caller-supplied hook returning frames to send first on
+//   every (re)connect, before the queue flush. The app owns what identity means; this package
+//   does not know what "who this is" means for any given backend.
 // - Events over pub/sub, not a bespoke API: an inbound "event" frame publishes under its own name;
 //   publishing to `outboundTopic` sends an "event" frame. No new subscription concept invented —
 //   pub/sub is the whole app-facing surface, in both directions.
 // - `simulate("disconnect" | "connect")`: a deliberate testing affordance. Reconnect logic is
 //   otherwise nearly untestable against a real backend.
 //
-// Dropped, not carried: the `queue_available` Defer-based gate around the send queue. It only ever
-// guarded synchronous code (`Queue`'s ops don't await anything), so in single-threaded JS it
-// serialized nothing that wasn't already serial — every method here runs to completion before the
-// next scheduled one starts, so there's no reentrancy hazard for it to guard against. Also dropped:
-// `createDefer` (→ `Promise.withResolvers()`), the `WeakMap` private-props pattern (→ `#private`
-// fields), `Evented`/`ws.on()` (→ `WSocket`'s `EventTarget`, from T3), lodash-es `defer`/`delay` (→
-// native `setTimeout`), all `window.hcstatic.*` coupling, and the MANHOLE/CDPPUSH actions
-// (Holmes-specific). JSON-RPC's header/response-object wrapping is also dropped — that's `core/rpc`
-// territory, out of scope for this package per the proposal's layering.
+// There is no lock around the send queue. `Queue`'s operations are synchronous, so in
+// single-threaded JS every method here runs to completion before the next scheduled one starts,
+// and there is no reentrancy hazard to guard against. Request/response wrapping such as JSON-RPC
+// headers is out of scope; that belongs in a layer above this package.
 //
-// The envelope shape below (`{ action, id, data }`) is a T4-local working assumption, not T5's
-// decision. websocket-spec.md T5 measures compressed bytes on the wire and picks the shape for
-// real; until then this object form (matching the proposal's standing lean) is what dispatch and
-// the tests here operate on.
+// The envelope shape (`{ action, id, data }`) is specified in schema/envelope.schema.json. It was
+// chosen over a positional array by measuring compressed bytes on the wire
+// (spike/measure-envelope.mjs).
 
 import { createPubSub, type PubSub } from "@dojo-ng/pubsub";
 import { Queue } from "./queue.js";

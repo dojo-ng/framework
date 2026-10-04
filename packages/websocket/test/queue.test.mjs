@@ -1,6 +1,6 @@
 /**
  * Queue: enqueue/dequeue/peek/isEmpty/size/clear, FIFO order, pushfront, forEach early-break.
- * Ported from app3/core/collections/tests/unit/queue.ts (websocket-spec.md T2). Pure — no DOM.
+ * Pure — no DOM.
  *
  * Run: node --test test/queue.test.mjs
  */

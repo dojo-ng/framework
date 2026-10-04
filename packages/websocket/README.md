@@ -2,9 +2,8 @@
 
 A framework-agnostic WebSocket client: a raw-socket wrapper (`WSocket`) and a convenience
 dispatcher on top of it (`WSDispatcher`) with request/response correlation, an offline send
-queue, reconnect with backoff, and a heartbeat watchdog. Ported from app3's `core/socket`,
-de-Holmesed — see `websocket-spec.md` in the project root for the full task-by-task history and
-the reasoning behind every non-obvious decision below.
+queue, reconnect with backoff, and a heartbeat watchdog. The reasoning behind each non-obvious
+behavior below is in the header comments of `src/wsocket.ts` and `src/wsdispatcher.ts`.
 
 Part of the [Dojo NG framework](../../README.md) monorepo (the non-Lit runtime that complements
 `components`). BSD-3-Clause.
@@ -75,11 +74,11 @@ affordance; the playground (below) uses it.
 
 `schema/envelope.schema.json` (JSON Schema draft-07) specifies the `{action, id, data}` frame
 `WSDispatcher` sends and receives, independently of the TypeScript `Envelope` type that binds it
-— the schema is the source of truth, the type is one binding of it. Chosen over app3's original
-positional-array form by measurement, not argument: compressed (raw DEFLATE, context carried
-across a session — the realistic case), the object form is only 3.4% larger than positional over
-a representative session. See `websocket-spec.md` T5's dated note for the full byte counts and
-methodology.
+— the schema is the source of truth, the type is one binding of it. The object form was chosen
+over a positional-array form (`[action, id, data]`) by measurement, not argument: compressed (raw
+DEFLATE, context carried across a session — the realistic case), the object form is only 3.4%
+larger than positional over a representative session. `spike/measure-envelope.mjs` reproduces
+the measurement.
 
 ## Playground
 

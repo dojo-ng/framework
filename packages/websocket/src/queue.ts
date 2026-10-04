@@ -1,8 +1,6 @@
-// Internal module. Ported from app3/core/collections/src/Queue.ts (websocket-spec.md T2), as a
-// self-contained singly linked list rather than importing LinkedList.ts — LinkedList has no other
-// consumer in this tree, and the T2 decision is to port only what Queue itself needs, not the rest
-// of app3's collections module (lodash-es included). Never re-export this module from index.ts:
-// that is the whole of the T2 decision (framework-monorepo-spec.md B3, websocket-spec.md T2).
+// Internal module: a self-contained singly linked list, with only what the dispatcher's send
+// queue needs and no dependencies. Never re-export this module from index.ts: it is an
+// implementation detail, not public API.
 
 interface Node<T> {
 	value: T;
@@ -20,7 +18,7 @@ export class Queue<T> {
 		return this.add(elem);
 	}
 
-	/** Same as `enqueue` — kept because app3 call sites use both names. */
+	/** Same as `enqueue`. */
 	add(elem: T): boolean {
 		if (elem === undefined) return false;
 		const node: Node<T> = { value: elem, next: null };
