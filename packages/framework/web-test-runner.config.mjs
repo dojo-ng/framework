@@ -8,6 +8,13 @@ import { playwrightLauncher } from "@web/test-runner-playwright";
 // QA harness (qa-harness-spec.md), so there is one browser-testing stack across
 // Dojo NG. Tests import the built `../../dist/core/vdom.js` by relative path (the
 // framework has zero runtime deps), so no nodeResolve plugin is needed.
+// On CI only (GitLab sets CI=true): run one browser engine at a time and give each one 2 minutes
+// to start a page instead of the default 30 seconds. The shared Heptapod runner often cannot
+// start Firefox and WebKit pages in time when engines run side by side ("unable to create and
+// start a test page after 30000ms"), which fails the job with no test failure underneath; see
+// ground-rules.md. Local runs keep the defaults (2 engines at once, 30 seconds).
+const onCI = Boolean(process.env.CI);
+
 export default {
 	files: ["test/browser/**/*.test.mjs"],
 	browsers: [
@@ -15,6 +22,7 @@ export default {
 		playwrightLauncher({ product: "firefox" }),
 		playwrightLauncher({ product: "webkit" }),
 	],
+	...(onCI ? { concurrentBrowsers: 1, browserStartTimeout: 120000 } : {}),
 	testFramework: {
 		config: { ui: "bdd", timeout: 5000 },
 	},
