@@ -1,6 +1,6 @@
 {
   "name": "@dojo-ng/websocket",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Dojo NG websocket client",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,7 +12,7 @@
   ],
   "license": "BSD-3-Clause",
   "dependencies": {
-    "@dojo-ng/pubsub": "^0.1.0"
+    "@dojo-ng/pubsub": "^0.1.2"
   },
   "devDependencies": {
     "ajv": "^8.20.0",
