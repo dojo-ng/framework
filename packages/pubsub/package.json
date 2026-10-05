@@ -1,6 +1,6 @@
 {
   "name": "@dojo-ng/pubsub",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Dojo NG publish/subscribe with namespaced topics, replay of the last value, and async iteration",
   "type": "module",
   "main": "./dist/index.js",

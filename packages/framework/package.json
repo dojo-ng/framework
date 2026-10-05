@@ -1,6 +1,6 @@
 {
   "name": "@dojo-ng/framework",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Dojo NG virtual DOM renderer: a small, plain-ESM renderer that sets properties on custom elements directly",
   "type": "module",
   "main": "dist/core/vdom.js",

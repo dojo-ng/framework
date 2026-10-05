@@ -1,5 +1,13 @@
 # @dojo-ng/websocket
 
+## 0.1.3
+
+### Patch Changes
+
+- Rewrite the README for npm readers: what the package does, a working example, and short sections of bullets, with links that work on npmjs.com. The package.json description is now in plain language. No behavior changes.
+- Updated dependencies
+  - @dojo-ng/pubsub@0.1.3
+
 ## 0.1.2
 
 ### Patch Changes
