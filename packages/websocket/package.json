@@ -1,7 +1,7 @@
 {
   "name": "@dojo-ng/websocket",
   "version": "0.1.2",
-  "description": "Dojo NG websocket client",
+  "description": "Dojo NG WebSocket client that reconnects, queues messages while offline, and matches responses to requests",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",

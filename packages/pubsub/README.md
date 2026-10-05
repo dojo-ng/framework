@@ -1,9 +1,10 @@
 # @dojo-ng/pubsub
 
-Dojo NG publish/subscribe facade backed by an external store.
+Publish and subscribe with namespaced topics. The bus keeps the last value of each topic, so a
+late subscriber starts with the current state.
 
-Part of the [Dojo NG framework](../../README.md) monorepo (the non-Lit runtime that complements
-`components`). BSD-3-Clause.
+Part of the [Dojo NG framework](https://foss.heptapod.net/dojo-ng/framework) packages: plain ESM,
+no Lit, and no runtime dependencies. BSD-3-Clause.
 
 ## Install
 
@@ -13,66 +14,78 @@ npm install @dojo-ng/pubsub
 
 ## Usage
 
-`createPubSub()` returns a `publish`/`subscribe` facade: it retains the last payload per topic and
-replays it to late subscribers by default, and every `publish` notifies current subscribers even
-when the payload is unchanged. The state backing it is exposed as a `store` property
-(`ReadableStore<T>` — `getState()`/`subscribe()`), so the same data is also readable through
-`components`' `StoreController` and context registry with no adapter: `ReadableStore` is a
-structural shape, not a class, and `components/packages/store/src/types.ts` defines the same shape
-independently — there is no dependency edge across the repo boundary in either direction.
+```js
+import { createPubSub } from "@dojo-ng/pubsub";
 
-See `components/docs/state-and-framework-analysis.md` for the full store/pub-sub/context design
-writeup; its pub/sub section notes that this package now lives here.
+const bus = createPubSub();
 
-### Namespaced topics
+bus.publish("cart:count", 3);
 
-Topics nest on a configured separator (`createPubSub({ separator })`, default `":"`). Publishing
-`a:b:c` notifies subscribers of `a:b:c`, then `a:b`, then `a` — most-specific first — so a
-subscriber to `a` hears everything under it without knowing the full topic tree in advance. The
-handler's second argument is the topic actually published, not the one subscribed to, since a
-namespace subscriber otherwise has no way to tell descendants apart:
+// Late subscribers get the last value at once (replay is on by default).
+bus.subscribe("cart:count", (count) => console.log("count", count));      // count 3
 
-```ts
-const ps = createPubSub();
-ps.subscribe("chat", (payload, topic) => console.log(topic, payload)); // hears chat, chat:room-1, chat:room-1:typing, ...
-ps.publish("chat:room-1:typing", { user: "ana" });
+// A namespace subscriber hears every topic under it, with the real topic.
+bus.subscribe("cart", (payload, topic) => console.log(topic, payload), { replay: false });
+
+bus.publish("cart:total", 42);   // logs "cart:total 42"
+bus.getLast("cart");             // 42, the newest value at or under "cart"
 ```
 
-`seq` (visible through `getLast`, and through the exposed `store`) is a single counter shared
-across every topic in an instance, not per-topic — ordering across topics is exactly what a
-namespace subscriber needs, and a per-topic counter can't provide it. Replay for a namespace
-subscriber, and `getLast` on one, both resolve to the single most recent entry anywhere at or
-under that topic (by that shared `seq`), not one value per descendant — flooding a subscriber
-with every child's last value on every subscribe would defeat the point of a quiet "start me off
-with the current state" default. A throwing subscriber never stops delivery to the others; the
-error is rethrown asynchronously instead of swallowed or left to break the topic for everyone
-else.
+## Subscribing
 
-### Async-iterable subscriptions
+- `subscribe(topic, handler, options)` returns a function that removes the subscription.
+- The handler receives the payload and the topic that was published.
+- Replay is on by default: a new subscriber receives the topic's last value at once. Pass
+  `{ replay: false }` when you only want new messages.
+- Every `publish` calls the handlers, even when the value is the same as before.
+- A handler that throws does not stop delivery to the others. The error is thrown again
+  asynchronously, so it still reaches the console.
 
-`pubsub.subscribeAsync(topic, options?)` is an async-iterable view of `subscribe`: `for await`
-receives every value published to `topic` — including namespace descendants, the same match rule as
-`subscribe` — in the order they were published. It subscribes immediately when called, not deferred
-to the first loop iteration, so nothing published between calling it and starting the loop is missed.
-It never replays; a late subscriber only sees future publishes, matching `for await`'s "start
-listening now" expectation rather than a cache read.
+## Namespaced topics
 
-Ending the iteration also tears down the subscription — via an explicit `AbortSignal` passed as
-`options.signal`, or automatically when a `for await` loop exits through `break`, `return`, or a
-thrown error (the standard `AsyncIterator.return()` protocol). Either way, nothing is left listening
-after the loop stops.
+- Topics nest on `:`. A publish to `chat:room-1:typing` reaches subscribers of
+  `chat:room-1:typing`, then `chat:room-1`, then `chat`, most specific first.
+- Pass `{ separator: "/" }` to `createPubSub` to use a different separator.
+- For a namespace topic, replay and `getLast` return the single newest value at or under that
+  topic, not one value for each child topic.
+- Each message gets a sequence number (`seq`). One counter is shared by all topics in a bus, so
+  messages can be ordered across topics.
 
-**A slow consumer — one that hasn't called `.next()` yet when new values arrive — buffers up to
-`options.bufferSize` values (default 256, `DEFAULT_BUFFER_SIZE`) before the oldest are dropped to
-make room for new ones.** This bound exists on purpose: with an unbounded buffer, a consumer
-that falls behind holds every value published since, and its memory grows without limit. Pick a larger `bufferSize` for a topic where losing an old
-event matters more than memory; the default is a reasonable middle ground for UI-facing streams,
-not a value to treat as load-bearing for every use.
+## Async iteration
 
-```ts
-const controller = new AbortController();
-for await (const payload of pubsub.subscribeAsync("chat:message", { signal: controller.signal })) {
-	render(payload);
+`subscribeAsync(topic, options)` gives the same messages as an async iterable for `for await`.
+
+```js
+const stop = new AbortController();
+
+for await (const total of bus.subscribeAsync("cart:total", { signal: stop.signal })) {
+  console.log("total is now", total);
+  if (total > 100) break;        // break also ends the subscription
 }
-// elsewhere: controller.abort() ends the loop and unsubscribes.
 ```
+
+- It starts listening when you call it, not when the loop starts, so no message in between is lost.
+- It does not replay the last value.
+- The subscription ends when the loop exits by `break`, `return`, or an error, or when the
+  `signal` aborts.
+- If the loop is slower than the messages, up to 256 messages wait (`DEFAULT_BUFFER_SIZE`). After
+  that, the oldest are dropped. Set `bufferSize` higher for a topic where losing an old message
+  matters more than memory.
+
+## Using the bus as a store
+
+`bus.store` is a `ReadableStore`: an object with `getState()` and `subscribe()`. It works with
+`StoreController` and the context keys from the Dojo NG components
+([`@dojo-ng/store`](https://www.npmjs.com/package/@dojo-ng/store) and
+[`@dojo-ng/context`](https://www.npmjs.com/package/@dojo-ng/context)) with no adapter. The two
+packages share only this shape, not code, so neither depends on the other.
+
+## Learn more
+
+The [framework runtime guide](https://dojo-ng.com/docs/framework/) shows the bus together with
+[`@dojo-ng/framework`](https://www.npmjs.com/package/@dojo-ng/framework) and
+[`@dojo-ng/websocket`](https://www.npmjs.com/package/@dojo-ng/websocket).
+
+## License
+
+BSD-3-Clause. See [LICENSE](https://foss.heptapod.net/dojo-ng/framework/-/blob/branch/default/LICENSE).

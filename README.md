@@ -1,19 +1,19 @@
 # Dojo NG framework
 
-A workspace monorepo of the non-UI runtime packages an app composes with — VDOM rendering, a
-socket client, a message bus. The Lit `dj-*` element library lives in a separate repo,
-[`components`](https://foss.heptapod.net/dojo-ng/components); this repo has no Lit dependency
-anywhere in it, and nothing here registers a custom element.
+The runtime packages that an app can use with the Dojo NG components, or without them: a
+renderer, a message bus, and a WebSocket client. The `dj-*` components live in a separate
+repository, [`components`](https://foss.heptapod.net/dojo-ng/components). Nothing in this
+repository depends on Lit or registers a custom element.
 
 ## Packages
 
-| Package | Description |
+| Package | What it gives you |
 |---|---|
-| [`@dojo-ng/framework`](packages/framework/README.md) | Clean-room v()-only VDOM renderer — ESM, property-first for custom elements, O(n) keyed reconciliation |
-| [`@dojo-ng/pubsub`](packages/pubsub/README.md) | Publish/subscribe facade backed by an external store — namespaced topics, async-iterable subscriptions |
-| [`@dojo-ng/websocket`](packages/websocket/README.md) | WebSocket client — raw-socket wrapper plus a dispatcher with request/response correlation, offline queueing, reconnect with backoff, and a heartbeat watchdog |
+| [`@dojo-ng/framework`](packages/framework/README.md) | A virtual DOM renderer that sets properties on custom elements directly |
+| [`@dojo-ng/pubsub`](packages/pubsub/README.md) | Publish and subscribe with namespaced topics, replay of the last value, and async iteration |
+| [`@dojo-ng/websocket`](packages/websocket/README.md) | A WebSocket client that reconnects, queues messages while offline, and matches each response to its request |
 
-Each package's own README has its build/test instructions and API.
+Each package's README has its API and examples. The [framework runtime guide](https://dojo-ng.com/docs/framework/) shows all three together.
 
 ## Development
 
