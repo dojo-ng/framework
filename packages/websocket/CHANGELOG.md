@@ -1,5 +1,11 @@
 # @dojo-ng/websocket
 
+## 0.2.0
+
+### Minor Changes
+
+- `WSDispatcher` can now reconnect to a URL that changes between attempts, so a socket that authenticates with a single-use ticket in the query string works. `url` accepts a function (sync or async) that is called before every open, and `reconnectBase` (seconds, default 15) sets the constant added to each reconnect delay. `WSocket.open()` takes an optional URL. A string `url` behaves exactly as before.
+
 ## 0.1.3
 
 ### Patch Changes

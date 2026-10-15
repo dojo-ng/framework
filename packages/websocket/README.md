@@ -46,6 +46,30 @@ bus.publish("notify:event", { event: "chat:message", params: { text: "Hi" } });
   after it is sent, so a failed send does not lose it.
 - After a lost connection, the client waits longer before each new try (Fibonacci backoff). A
   successful connect resets the delay. After `close()`, it does not reconnect.
+- `reconnectBase` (seconds, default 15) is added to every reconnect delay. Lower it when the
+  server is on the same machine, where a disconnect is usually a quick restart. Keep it high for
+  a public site, so a server restart is not met by every tab at once.
+- `url` can be a function (sync or async) instead of a string. It is called before every open,
+  the first connect and each reconnect, and what it returns is the URL for that attempt only.
+  Use it when the URL carries a single-use credential, such as a ticket in the query string
+  (a browser cannot set a header on a WebSocket). If the function throws or rejects, that counts
+  as a failed attempt and is retried through the backoff. To stop for good, call `close()` and
+  then throw. A string `url` works exactly as before.
+
+```js
+const server = new WSDispatcher({
+  reconnectBase: 2,
+  url: async () => {
+    const res = await fetch("/api/ws-ticket", { method: "POST" });
+    if (res.status === 401) {
+      server.close(); // the credential was refused; do not retry
+      throw new Error("not authorized");
+    }
+    const { ticket } = await res.json();
+    return `wss://example.com/ws?ticket=${ticket}`;
+  },
+});
+```
 - When the server sends `ping` messages, the client expects one at least every 40 seconds. If
   none arrives, it closes and reconnects through the same backoff. A server that never sends a
   ping turns this check off.

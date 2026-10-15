@@ -81,8 +81,11 @@ export class WSocket extends EventTarget {
 		return this.#socket !== null && this.#state === ReadyState.OPEN;
 	}
 
-	/** With no existing socket, or `force: true`, tears down any prior socket and opens a fresh one. */
-	open(force = false): void {
+	/**
+	 * With no existing socket, or `force: true`, tears down any prior socket and opens a fresh one.
+	 * A `url` replaces the stored one for this socket and onward, so `url` reports the latest.
+	 */
+	open(force = false, url?: string): void {
 		if (this.#socket) {
 			if (!force) return;
 			const stale = this.#socket;
@@ -93,6 +96,7 @@ export class WSocket extends EventTarget {
 			this.#socket = null;
 		}
 
+		if (url !== undefined) this.#url = url;
 		this.#state = ReadyState.CONNECTING;
 		const socket = (this.#socket = new WebSocket(this.#url));
 		// Pre-open error: straight to close, no `error` event — see the file header.

@@ -7,8 +7,14 @@
 // - Offline send queue (`#drain`): peeks and sends, dequeuing only on a confirmed OKAY send, so a
 //   failed send never drops the message. BUFFERING retries at 50ms; a confirmed send immediately
 //   tries the next one.
-// - Reconnect with Fibonacci backoff (`#scheduleReopen`): `TIMEOUT_BASE` 15s plus the step table,
-//   counter reset only on a successful open, suppressed entirely while `#closing` is true.
+// - Reconnect with Fibonacci backoff (`#scheduleReopen`): `reconnectBase` (default 15s) plus the
+//   step table, counter reset only on a successful open, suppressed entirely while `#closing` is
+//   true.
+// - URL provider: `url` may be a function, called before EVERY open (first connect and each
+//   reconnect) so a single-use ticket in the query string is fresh each time. A provider that
+//   throws or rejects is a failed attempt and goes through `#scheduleReopen`; one that wants to stop
+//   for good calls `close()` before throwing. `#closing` is rechecked after the provider resolves,
+//   so a `close()` that lands mid-await wins.
 // - Heartbeat watchdog (`#armHeartbeat`): each inbound "ping" frame arms a 40s timer. On expiry:
 //   close, wait 2s, then go through the SAME backoff-aware reopen path as any other reconnect —
 //   not a bypass. `TIMEOUT_STEP`'s reset-only-on-success rule means a heartbeat failure right after
@@ -36,7 +42,7 @@ import { createPubSub, type PubSub } from "@dojo-ng/pubsub";
 import { Queue } from "./queue.js";
 import { WSocket, SendState, type WSocketEventMap } from "./wsocket.js";
 
-const TIMEOUT_BASE = 15;
+const DEFAULT_RECONNECT_BASE = 15;
 const TIMEOUT_STEP = [0, 0, 0, 0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233];
 const PING_TIMEOUT_MS = 40_000;
 const PING_RECOVERY_DELAY_MS = 2_000;
@@ -60,7 +66,28 @@ interface PendingCall {
 }
 
 export interface WSDispatcherOptions {
-	url: string;
+	/**
+	 * The socket URL, or a function returning it (sync or async). A function is called before every
+	 * open, first connect and every reconnect alike, and its result is the URL for that attempt only
+	 * — use it when the URL carries a single-use credential such as a ticket. A function that throws
+	 * or rejects counts as a failed attempt and is retried through the reconnect backoff. To stop
+	 * for good (say the credential was refused), call `close()` and then throw.
+	 *
+	 * ```ts
+	 * url: async () => {
+	 *   const res = await fetch("/api/ws-ticket", { method: "POST" });
+	 *   if (res.status === 401) { dispatcher.close(); throw new Error("not authorized"); }
+	 *   return `wss://example.com/ws?ticket=${(await res.json()).ticket}`;
+	 * }
+	 * ```
+	 */
+	url: string | (() => string | Promise<string>);
+	/**
+	 * Seconds added to every reconnect delay, on top of the Fibonacci step. Default 15. Lower it for
+	 * a client on the same machine as its server (a daemon restart); keep it high for a public site
+	 * so a server restart is not met by every tab at once.
+	 */
+	reconnectBase?: number;
 	/** Frames to send first on every (re)connect, before the offline queue flushes. */
 	onConnect?: () => unknown[];
 	/** Shared with the rest of the app if given; otherwise a private instance is created. */
@@ -74,7 +101,8 @@ export interface WSDispatcherOptions {
  * open are queued and flushed on connect. See the file header for the full behavior list.
  */
 export class WSDispatcher {
-	readonly #url: string;
+	readonly #urlSource: string | (() => string | Promise<string>);
+	readonly #reconnectBase: number;
 	readonly #ws: WSocket;
 	readonly #pubsub: PubSub;
 	readonly #onConnect?: () => unknown[];
@@ -82,16 +110,18 @@ export class WSDispatcher {
 	readonly #cbqueue = new Map<number, PendingCall>();
 
 	#closing = false;
+	#resolvingUrl = false;
 	#reopenCount = 0;
 	#nextId = 1;
 	#pingTimer: ReturnType<typeof setTimeout> | null = null;
 
 	constructor(options: WSDispatcherOptions) {
-		this.#url = options.url;
+		this.#urlSource = options.url;
+		this.#reconnectBase = options.reconnectBase ?? DEFAULT_RECONNECT_BASE;
 		this.#onConnect = options.onConnect;
 		this.#pubsub = options.pubsub ?? createPubSub();
 
-		this.#ws = new WSocket(this.#url);
+		this.#ws = new WSocket(typeof this.#urlSource === "string" ? this.#urlSource : "");
 		this.#ws.addEventListener("message", (event) => {
 			this.#dispatch((event as WSocketEventMap["message"]).detail.data as string);
 		});
@@ -111,8 +141,9 @@ export class WSDispatcher {
 		);
 	}
 
+	/** The most recent URL opened; empty until a URL provider has resolved once. */
 	get url(): string {
-		return this.#url;
+		return this.#ws.url;
 	}
 
 	/** The underlying `WSocket`, for connection-state inspection. */
@@ -131,7 +162,13 @@ export class WSDispatcher {
 
 	open(force = false): void {
 		this.#closing = false;
-		this.#ws.open(force);
+		if (typeof this.#urlSource === "string") {
+			this.#ws.open(force);
+			return;
+		}
+		// A second open while the provider is pending would spend a second single-use URL.
+		if (this.#resolvingUrl) return;
+		void this.#openResolved(this.#urlSource, force);
 	}
 
 	close(): void {
@@ -157,10 +194,26 @@ export class WSDispatcher {
 		}
 	}
 
+	async #openResolved(provider: () => string | Promise<string>, force: boolean): Promise<void> {
+		this.#resolvingUrl = true;
+		let url: string;
+		try {
+			url = await provider();
+		} catch {
+			this.#resolvingUrl = false;
+			this.#scheduleReopen();
+			return;
+		}
+		this.#resolvingUrl = false;
+		// A close() that landed while the provider was pending must win.
+		if (this.#closing) return;
+		this.#ws.open(force, url);
+	}
+
 	#scheduleReopen(): void {
 		if (this.#closing) return;
 		const step = Math.min(this.#reopenCount, TIMEOUT_STEP.length - 1);
-		const timeoutSeconds = TIMEOUT_STEP[step] + TIMEOUT_BASE;
+		const timeoutSeconds = TIMEOUT_STEP[step] + this.#reconnectBase;
 		this.#reopenCount++;
 		setTimeout(() => {
 			this.open();

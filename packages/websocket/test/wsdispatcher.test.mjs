@@ -219,3 +219,126 @@ test("simulate('disconnect') closes with no reconnect; simulate('connect') opens
 		assert.equal(dispatcher.socket.socket, reconnectedSocket);
 	});
 });
+
+// Lets the dispatcher's awaited URL provider settle. Only setTimeout is mocked in the fake-timer
+// tests, so setImmediate still runs for real.
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+test("a URL provider is called once per open, and a reconnect opens the SECOND url it returned", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	await withFakeWebSocketAsync(async () => {
+		let n = 0;
+		const dispatcher = new WSDispatcher({ url: () => `wss://example.test/ws?ticket=${++n}` });
+		dispatcher.open();
+		await settle();
+		const first = dispatcher.socket.socket;
+		assert.equal(first.url, "wss://example.test/ws?ticket=1");
+		assert.equal(dispatcher.url, "wss://example.test/ws?ticket=1");
+		first.simulateOpen();
+
+		// Reconnecting with the stored first URL is the bug: a spent ticket is refused forever.
+		first.close();
+		t.mock.timers.tick((TIMEOUT_STEP[0] + TIMEOUT_BASE_S) * 1000);
+		await settle();
+		assert.equal(n, 2, "provider was not called again for the reconnect");
+		assert.equal(dispatcher.socket.socket.url, "wss://example.test/ws?ticket=2");
+		assert.equal(dispatcher.url, "wss://example.test/ws?ticket=2");
+	});
+});
+
+test("a rejecting URL provider schedules a reopen through the backoff ladder", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	await withFakeWebSocketAsync(async () => {
+		let calls = 0;
+		const dispatcher = new WSDispatcher({
+			url: async () => {
+				calls++;
+				if (calls === 1) throw new Error("ticket request failed");
+				return "wss://example.test/ok";
+			},
+		});
+		dispatcher.open();
+		await settle();
+		assert.equal(dispatcher.socket.socket, null, "opened a socket despite the provider failing");
+
+		const delayMs = (TIMEOUT_STEP[0] + TIMEOUT_BASE_S) * 1000;
+		t.mock.timers.tick(delayMs - 1);
+		await settle();
+		assert.equal(calls, 1, "retried before the backoff delay");
+		t.mock.timers.tick(1);
+		await settle();
+		assert.equal(calls, 2);
+		assert.equal(dispatcher.socket.socket.url, "wss://example.test/ok");
+	});
+});
+
+test("a provider that calls close() then throws produces no further attempts", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	await withFakeWebSocketAsync(async () => {
+		let calls = 0;
+		const dispatcher = new WSDispatcher({
+			url: async () => {
+				calls++;
+				dispatcher.close();
+				throw new Error("401");
+			},
+		});
+		dispatcher.open();
+		await settle();
+		t.mock.timers.tick(10 * 60 * 1000);
+		await settle();
+		assert.equal(calls, 1);
+		assert.equal(dispatcher.socket.socket, null);
+	});
+});
+
+test("close() while the URL provider is pending opens no socket", async () => {
+	await withFakeWebSocketAsync(async () => {
+		const { promise, resolve } = Promise.withResolvers();
+		const dispatcher = new WSDispatcher({ url: () => promise });
+		dispatcher.open();
+		dispatcher.close();
+		resolve("wss://example.test/late");
+		await settle();
+		assert.equal(dispatcher.socket.socket, null, "opened a socket after the app asked to stop");
+	});
+});
+
+test("a string url behaves as before: the same url on every reconnect, opened synchronously", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	await withFakeWebSocketAsync(() => {
+		const dispatcher = new WSDispatcher({ url: "wss://example.test/fixed" });
+		dispatcher.open();
+		const first = dispatcher.socket.socket;
+		assert.notEqual(first, null, "a string url must open synchronously");
+		assert.equal(dispatcher.url, "wss://example.test/fixed");
+		first.simulateOpen();
+		first.close();
+		t.mock.timers.tick((TIMEOUT_STEP[0] + TIMEOUT_BASE_S) * 1000);
+		assert.equal(dispatcher.socket.socket.url, "wss://example.test/fixed");
+	});
+});
+
+test("reconnectBase sets the first reopen delay; the default is still 15s", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	await withFakeWebSocketAsync(() => {
+		const fast = new WSDispatcher({ url: "wss://example.test", reconnectBase: 2 });
+		fast.open();
+		fast.socket.socket.simulateOpen();
+		fast.socket.socket.close();
+		t.mock.timers.tick(1_999);
+		assert.equal(fast.socket.socket, null, "reopened before 2s");
+		t.mock.timers.tick(1);
+		assert.notEqual(fast.socket.socket, null, "did not reopen at 2s");
+		fast.close();
+
+		const dflt = new WSDispatcher({ url: "wss://example.test" });
+		dflt.open();
+		dflt.socket.socket.simulateOpen();
+		dflt.socket.socket.close();
+		t.mock.timers.tick(14_999);
+		assert.equal(dflt.socket.socket, null, "default reopened before 15s");
+		t.mock.timers.tick(1);
+		assert.notEqual(dflt.socket.socket, null, "default did not reopen at 15s");
+	});
+});
