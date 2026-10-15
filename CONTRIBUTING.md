@@ -64,6 +64,14 @@ are not tracked.
    If you cannot push to this project, fork it on Heptapod and open the merge request from your
    fork.
 
+   Steps 3 and 6 can be one command. The `hg ship` extension from
+   [hg-tools](https://foss.heptapod.net/dojo-ng/hg-tools) commits the files you name under a
+   topic, runs the repository's check, pushes, and opens the merge request:
+
+   ```bash
+   hg ship -t fix-event-binding -l message.txt packages/framework/src/core/vdom.ts
+   ```
+
 ## License
 
 Dojo NG is BSD-3-Clause. By contributing, you agree that your contribution is released under
