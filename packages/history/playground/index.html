@@ -24,6 +24,14 @@
   - Trail: the "Order 7" button carries a trail. Reload on that path and the trail is still in the
     log, because it lives in the entry's state.
   - A Back must not add entries: the history.length readout does not change when you press Back.
+  - Hash mode: tick "hash mode", Apply, navigate. The URL is /#/orders/7. Edit the hash by hand and
+    press Enter: the view follows and the entry is stamped. Reload works with no server fallback.
+  - Scroll: tick "scroll", Apply. Scroll down the filler, press a Navigate button (you land at the
+    top), then Back: the page returns to where you were.
+  - Focus: tick "focus", Apply. Press a Navigate button with the keyboard: the view title takes
+    focus. Back does not move it.
+  - Guard: tick "ask before leaving". Back, and any Navigate button, now asks first. Cancel keeps
+    the view and the history readout unchanged. Closing the tab shows the browser's prompt.
 
   The views here are chosen with match() from the published location. The history package does not
   render anything.
@@ -37,6 +45,9 @@
 	fieldset { margin: 1rem 0; }
 	legend { font-weight: 600; }
 	#view { padding: 1rem; border: 1px solid #ccc; border-radius: 6px; min-height: 3rem; }
+	#view h2 { font-size: 1.1rem; margin: 0; }
+	#filler { height: 1200px; margin-top: 1rem; border: 1px dashed #bbb; padding: 0.5rem; color: #888; }
+	label.opt { margin-right: 0.8rem; white-space: nowrap; }
 	#readout { font: 13px ui-monospace, monospace; margin: 0.6rem 0; }
 	#log { height: 14rem; overflow-y: auto; background: #111; color: #ddd; font: 12.5px/1.5 ui-monospace, monospace; padding: 0.6rem 0.8rem; border-radius: 6px; }
 	#log div { white-space: pre-wrap; }
@@ -63,19 +74,39 @@
 	<button id="forward">Forward</button>
 	<button id="commit">commit()</button>
 	<label>dwellMs <input id="dwell" type="number" min="0" step="100" value="3000" /></label>
+	<label class="opt"><input id="hash" type="checkbox" /> hash mode</label>
+	<label class="opt"><input id="scroll" type="checkbox" /> scroll</label>
+	<label class="opt"><input id="focus" type="checkbox" /> focus</label>
 	<button id="apply">Apply (reinstall)</button>
+	<label class="opt"><input id="guard" type="checkbox" /> ask before leaving</label>
 </fieldset>
 
 <div id="view" role="region" aria-live="polite" aria-label="Current view"></div>
 <div id="readout"></div>
 <div id="log" role="log" aria-label="nav:location log"></div>
+<div id="filler">Filler, so the page scrolls. Scroll down, navigate, then press Back.</div>
 
 <script type="module">
 import { createPubSub } from "@dojo-ng/pubsub";
 import { installHistory, match } from "@dojo-ng/history";
 
 const bus = createPubSub();
-let h = installHistory(bus, { dwellMs: 3000, onCommit: (entry) => log("onCommit", entry) });
+const $ = (id) => document.getElementById(id);
+let unblock;
+
+function install() {
+	const options = {
+		dwellMs: Number($("dwell").value),
+		onCommit: (entry) => log("onCommit", entry),
+		...($("hash").checked ? { mode: "hash" } : {}),
+		...($("scroll").checked ? { scroll: true } : {}),
+		...($("focus").checked ? { focus: "#view-title" } : {}),
+	};
+	const instance = installHistory(bus, options);
+	return instance;
+}
+
+let h = install();
 
 const views = [
 	["/", () => "Home"],
@@ -95,7 +126,6 @@ function viewFor(path) {
 	return `Not found: ${pathname}`;
 }
 
-const $ = (id) => document.getElementById(id);
 function log(label, payload) {
 	const line = document.createElement("div");
 	line.textContent = `${new Date().toLocaleTimeString()}  ${label}  ${JSON.stringify(payload)}`;
@@ -109,7 +139,10 @@ function readout() {
 
 // The only place the view changes: the published location.
 bus.subscribe("nav:location", (loc) => {
-	$("view").textContent = viewFor(loc.path);
+	const title = document.createElement("h2");
+	title.id = "view-title";
+	title.textContent = viewFor(loc.path);
+	$("view").replaceChildren(title);
 	log("nav:location", loc);
 	readout();
 });
@@ -128,10 +161,16 @@ $("back").addEventListener("click", () => h.back());
 $("forward").addEventListener("click", () => h.forward());
 $("commit").addEventListener("click", () => h.commit());
 $("apply").addEventListener("click", () => {
-	const dwellMs = Number($("dwell").value);
+	unblock?.();
+	unblock = undefined;
 	h.destroy();
-	h = installHistory(bus, { dwellMs, onCommit: (entry) => log("onCommit", entry) });
-	log("reinstalled", { dwellMs });
+	h = install();
+	$("guard").checked = false;
+	log("reinstalled", { dwellMs: Number($("dwell").value), hash: $("hash").checked, scroll: $("scroll").checked, focus: $("focus").checked });
+});
+$("guard").addEventListener("change", () => {
+	unblock?.();
+	unblock = $("guard").checked ? h.block((to) => confirm(`Leave for ${to.path}?`)) : undefined;
 });
 window.addEventListener("popstate", () => setTimeout(readout, 0));
 </script>

@@ -69,7 +69,8 @@ nothing else, so Back never adds an entry.
 - `canGoBack`, `canGoForward`: properties. The browser does not say whether Back or Forward has
   somewhere to go, so each entry carries a private `{ id, index }` in `history.state`, and the
   highest index is kept in `sessionStorage`. Without `sessionStorage`, `canGoForward` is `false`.
-- `href(path)`: `base` plus `path`, for a link's `href`
+- `href(path)`: `base` plus `path`, for a link's `href` (`#` plus `path` in hash mode)
+- `block(blocker)`: ask before a move; returns a function that removes the blocker. See Guards.
 - `annotate({ state?, trail? })`: replace those fields on the current entry (with `replaceState`)
   and publish the location again. It sets whichever of the two you pass; it does not merge inside `state`.
 - `commit()`: commit the current entry now
@@ -81,6 +82,9 @@ nothing else, so Back never adds an entry.
 |---|---|---|
 | `base` | `""` | A path prefix such as `/acme`. Added to every URL written and stripped from every path read. |
 | `dwellMs` | `3000` | Visible milliseconds before an entry commits. `0` gives plain browser behavior. |
+| `mode` | `"path"` | `"hash"` keeps the route after `#`. See Hash mode. |
+| `scroll` | `false` | `true` or `{ targets?, ready? }`: restore scroll on Back, Forward and reload. See Scroll restoration. |
+| `focus` | `false` | A selector to focus after a `go`. See Focus after a navigation. |
 | `onCommit` | none | Called once for each entry that commits. See Hooks. |
 | `resolve` | none | Rebuilds the state of a landing entry that has none. See Hooks. |
 | `window` | `globalThis.window` | For tests: any object shaped like the parts of `window` this uses. |
@@ -111,6 +115,94 @@ pasted link, a bookmark), it is awaited before the first `nav:location` (`source
 result becomes the entry's state. If it rejects, the error is logged and the bare path is
 published. A reload in the same tab keeps its state, so `resolve` is not called. If the app
 navigates before `resolve` settles, the late result is dropped.
+
+## Hash mode
+
+```js
+installHistory(bus, { mode: "hash" });   // https://example.com/app.html#/orders/7
+```
+
+The route lives after the `#`, so a static server with no fallback can serve every deep link: a
+reload on `#/orders/7` just loads `app.html`. Everything else works as in path mode. `go` writes
+`#/orders/7`, `href("/orders/7")` returns `#/orders/7`, and `location.path` is still `/orders/7`.
+
+- A user editing the hash in the address bar, or clicking a plain `<a href="#/x">`, is published as
+  a `go` and stamped like any other entry. Nothing in your app has to listen for `hashchange`.
+- Hash mode owns the whole hash, so an in-page `#section` link can't also scroll to a section. Use
+  `element.scrollIntoView()` for that.
+- `base` is ignored, with one `console.warn`, because the page's own path is fixed.
+- Components build their links with `getHistory().href(path)`, so hash mode needs `installHistory`
+  to have run. Without it a component falls back to its plain `href`.
+- Blockers (see Guards) are not asked about an address-bar hash edit: the browser has already
+  moved, and it can't be put back safely.
+
+## Scroll restoration
+
+```js
+installHistory(bus, { scroll: true });
+installHistory(bus, {
+  scroll: {
+    targets: () => [document.getElementById("list")],      // scrolling elements; each needs an id
+    ready: (location) => view.updateComplete,               // resolve when the view has rendered
+  },
+});
+```
+
+Off by default, because turning it on sets `history.scrollRestoration` to `"manual"` (put back by
+`destroy()`), which an app should choose.
+
+- Back, Forward and a same-tab reload return the window, and each `targets` element, to where the
+  user left that entry. A `go` scrolls to the top, or to the element named by a `#fragment` in the
+  path (path mode only).
+- Positions are saved when leaving an entry and on `pagehide`. They are kept in `sessionStorage`
+  by entry id, newest 50, never in `history.state`. Without `sessionStorage`, nothing is restored.
+- A skimmed entry that gets replaced (see Dwell) loses its saved position.
+- **`ready` is the contract.** History publishes the location and does not render, so it can't know
+  when the view is there. Without `ready`, it waits two animation frames, which is right for a view
+  that renders at once and not enough for data that loads later. With a Lit view, `ready` can
+  return `view.updateComplete`; with fetched data, a promise for the fetch. A `ready` that rejects
+  is logged and the scroll still happens.
+
+## Focus after a navigation
+
+```js
+installHistory(bus, { focus: "h1, [role=main], main" });
+```
+
+After a `go`, once the view has had its frames (or `scroll.ready`), the first element matching the
+selector gets focus, so keyboard and screen reader users learn the page changed. Without this,
+focus stays on the link that was clicked, which may no longer exist. Most apps will want it on.
+
+- An element that can't take focus, such as a heading, gets `tabindex="-1"` until it blurs.
+- Focus does not move on Back, Forward or a reload. The browser's own behavior is right there.
+- Focus already inside the matched element is left alone, so choosing a tree node keeps focus on
+  the tree.
+
+## Guards
+
+```js
+const unblock = history.block((to, from) => !formIsDirty() || confirm("Leave without saving?"));
+// later, after saving:
+unblock();
+```
+
+`block` runs the blocker before every `go` and every Back or Forward. Return `true` to allow the
+move; the function may be async. With several blockers, all must allow. Anything other than `true`
+(or a throw) refuses.
+
+- A refused `go` writes nothing, publishes nothing and leaves the dwell state alone. If a second
+  `go` arrives while a check is pending, only the latest is checked.
+- A browser can't cancel a Back, only undo it. So a guarded Back is traversed straight back with
+  `history.go`, the blocker is asked, and if it allows the move the traversal is replayed and
+  published as usual. No `pushState` or `replaceState` is involved. Entries this package did not
+  create are not guarded.
+- While any blocker is active, closing or reloading the tab shows the browser's own prompt. Browsers
+  ignore custom text there.
+- `to` is the `nav:go` payload, or `{ path, source: "pop" }` for Back and Forward. `from` is the
+  current location.
+- `dj-back-button`'s cancelable `dj-back` event runs first; the two compose.
+- The Navigation API could later give a true cancel in place of the undo and replay, where it is
+  available. It isn't used here, so older Safari works.
 
 ## match
 

@@ -213,7 +213,7 @@ test("dist/handle.js and handle.d.ts import nothing, in particular not @dojo-ng/
 	for (const file of ["handle.js", "handle.d.ts"]) {
 		const text = readFileSync(fileURLToPath(new URL(`../dist/${file}`, import.meta.url)), "utf8");
 		assert.doesNotMatch(text, /@dojo-ng\/pubsub/, file);
-		assert.doesNotMatch(text, /^\s*(import|export)\b[^\n]*\bfrom\b/m, `${file} has an import or re-export`);
+		assert.doesNotMatch(text, /^\s*(import|export)\b[^\n]*\bfrom\s*["']/m, `${file} has an import or re-export`);
 	}
 });
 

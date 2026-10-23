@@ -5,12 +5,17 @@
 // entry. A `popstate` publishes `nav:location` and writes nothing. Every write goes through
 // `writeEntry` below, and no code path from `onPop` reaches it.
 //
+// Guards (`block`) keep the invariant: a refused Back is undone with `history.go`, a traversal, never
+// a write. Hash mode stamps an address-bar edit by publishing `nav:go`, so it goes through the writer too.
+//
 // This module must not import ./match.js: navigation never matches paths (decision D10).
 import type { PubSub } from "@dojo-ng/pubsub";
 import {
 	getHistory,
 	registerHistory,
 	unregisterHistory,
+	type Blocker,
+	type BlockTarget,
 	type CommitEntry,
 	type HistoryInstance,
 	type NavAnnotation,
@@ -27,17 +32,37 @@ export interface HistoryWindow {
 		replaceState(state: unknown, title: string, url?: string | null): void;
 		back(): void;
 		forward(): void;
+		go(delta: number): void;
+		scrollRestoration?: "auto" | "manual";
 		readonly state: unknown;
 	};
 	location: { readonly pathname: string; readonly search: string; readonly hash: string; readonly href: string };
+	readonly scrollX?: number;
+	readonly scrollY?: number;
+	scrollTo?(x: number, y: number): void;
+	requestAnimationFrame?(callback: () => void): unknown;
 	addEventListener(type: string, listener: (event: never) => void): void;
 	removeEventListener(type: string, listener: (event: never) => void): void;
 	document: {
 		readonly visibilityState?: string;
+		readonly activeElement?: Element | null;
+		getElementById?(id: string): Element | null;
+		querySelector?(selector: string): Element | null;
 		addEventListener(type: string, listener: (event: never) => void): void;
 		removeEventListener(type: string, listener: (event: never) => void): void;
 	};
 	readonly sessionStorage?: { getItem(key: string): string | null; setItem(key: string, value: string): void };
+}
+
+/** What `scroll` takes beyond `true`. */
+export interface ScrollOptions {
+	/** Scrollable elements besides the window. Each needs an `id`; one without is skipped, with a warning. */
+	targets?: () => Iterable<Element>;
+	/**
+	 * Resolve when the view for `location` has rendered. Without it, restoring waits two animation
+	 * frames, which is right for a synchronous render and not enough for data that loads later.
+	 */
+	ready?: (location: NavLocation) => Promise<void> | void;
 }
 
 export interface InstallOptions {
@@ -54,6 +79,24 @@ export interface InstallOptions {
 	 * bookmark). Its result becomes the entry's state before `nav:location` is published as `load`.
 	 */
 	resolve?: (path: string) => Promise<unknown>;
+	/**
+	 * `"hash"` keeps the route after `#` (`#/orders/7`), so a server with no SPA fallback can serve any
+	 * deep link. Default `"path"`. Hash mode owns the whole hash, so in-page `#anchor` links don't work
+	 * there, and `base` is ignored.
+	 */
+	mode?: "path" | "hash";
+	/**
+	 * Restore the scroll position on Back, Forward and reload, and scroll to the top (or to a
+	 * `#fragment`) after a `go`. Off by default. Turning it on sets `history.scrollRestoration` to
+	 * `"manual"` until `destroy()`.
+	 */
+	scroll?: boolean | ScrollOptions;
+	/**
+	 * A selector. After a `go` (not a Back or a reload), focus the first match so keyboard and screen
+	 * reader users learn the view changed. An element that can't take focus gets `tabindex="-1"` until
+	 * it blurs. Focus already inside the match is left alone. Default off.
+	 */
+	focus?: string | false;
 }
 
 interface Entry {
@@ -71,8 +114,29 @@ interface Stamp {
 	index: number;
 }
 
+/** Saved positions: the window, plus each target by element id. */
+interface ScrollRecord {
+	x: number;
+	y: number;
+	t?: Record<string, [number, number]>;
+}
+
+interface ScrollStore {
+	order: string[];
+	pos: Record<string, ScrollRecord>;
+}
+
+interface PendingUndo {
+	delta: number;
+	token: number;
+	to: BlockTarget;
+}
+
 const DEFAULT_DWELL_MS = 3000;
 const MAX_INDEX_KEY = "dojo-ng.history.max";
+const SCROLL_KEY = "dojo-ng.history.scroll";
+const SCROLL_CAP = 50;
+const FOCUSABLE = "a[href], area[href], button, input, select, textarea, summary, iframe, [tabindex], [contenteditable]";
 const DUPLICATE_INSTALL_WARNED = new WeakSet<HistoryInstance>();
 
 let idCounter = 0;
@@ -118,9 +182,20 @@ export function installHistory(bus: PubSub, options: InstallOptions = {}): Histo
 	const win = options.window ?? (globalThis as unknown as { window?: HistoryWindow }).window;
 	if (!win) throw new Error("[@dojo-ng/history] installHistory needs a window. Pass options.window outside a browser.");
 
-	const base = normalizeBase(options.base);
+	const hashMode = options.mode === "hash";
+	const base = hashMode ? "" : normalizeBase(options.base);
 	const dwellMs = options.dwellMs ?? DEFAULT_DWELL_MS;
+	const scrollOn = Boolean(options.scroll);
+	const scrollOpts: ScrollOptions = typeof options.scroll === "object" ? options.scroll : {};
+	const focusSelector = options.focus || undefined;
+	const blockers = new Set<{ fn: Blocker }>();
 	const warned = new Set<string>();
+	let guardToken = 0;
+	let undoing: PendingUndo | undefined;
+	let redoing = false;
+	let pendingAdopt = false;
+	let settleToken = 0;
+	let savedRestoration: "auto" | "manual" | undefined;
 	const provisionalIds = new Set<string>();
 	let cur: Entry;
 	let last: NavLocation | undefined;
@@ -139,6 +214,10 @@ export function installHistory(bus: PubSub, options: InstallOptions = {}): Histo
 	}
 
 	function currentPath(): string {
+		if (hashMode) {
+			const route = win!.location.hash.replace(/^#/, "");
+			return route === "" ? "/" : route.startsWith("/") ? route : `/${route}`;
+		}
 		const full = win!.location.pathname + win!.location.search + win!.location.hash;
 		if (base && (full === base || full.startsWith(`${base}/`) || full.startsWith(`${base}?`) || full.startsWith(`${base}#`))) {
 			const rest = full.slice(base.length);
@@ -148,7 +227,11 @@ export function installHistory(bus: PubSub, options: InstallOptions = {}): Histo
 	}
 
 	function place(): string {
-		return win!.location.pathname + win!.location.search;
+		return win!.location.pathname + win!.location.search + (hashMode ? win!.location.hash : "");
+	}
+
+	function hrefOf(path: string): string {
+		return hashMode ? `#${path}` : base + path;
 	}
 
 	function stateFor(entry: Entry): unknown {
@@ -193,15 +276,19 @@ export function installHistory(bus: PubSub, options: InstallOptions = {}): Histo
 		}
 	}
 
-	function publish(): void {
-		const location: NavLocation = {
-			path: cur.path,
-			state: cur.state,
-			index: cur.index,
-			committed: cur.committed,
-			source: cur.source,
-			...(cur.trail ? { trail: cur.trail } : {}),
+	function toLocation(entry: Entry): NavLocation {
+		return {
+			path: entry.path,
+			state: entry.state,
+			index: entry.index,
+			committed: entry.committed,
+			source: entry.source,
+			...(entry.trail ? { trail: entry.trail } : {}),
 		};
+	}
+
+	function publish(): void {
+		const location = toLocation(cur);
 		last = location;
 		bus.publish("nav:location", location);
 	}
@@ -262,6 +349,153 @@ export function installHistory(bus: PubSub, options: InstallOptions = {}): Histo
 		fireCommit(cur);
 	}
 
+	// --- scroll and focus ----------------------------------------------------------------------
+	// Positions live in sessionStorage by entry id, never in history state: writing them into state
+	// would need a replaceState from a scroll or pop handler, and only nav:go may write.
+
+	function readScrollStore(): ScrollStore {
+		try {
+			const raw = win!.sessionStorage?.getItem(SCROLL_KEY);
+			const parsed = raw ? (JSON.parse(raw) as ScrollStore) : undefined;
+			if (parsed && Array.isArray(parsed.order) && isRecord(parsed.pos)) return parsed;
+		} catch {
+			// Blocked storage or a damaged value: start empty.
+		}
+		return { order: [], pos: {} };
+	}
+
+	function writeScrollStore(store: ScrollStore): void {
+		try {
+			win!.sessionStorage?.setItem(SCROLL_KEY, JSON.stringify(store));
+		} catch {
+			// Storage can be blocked. Restoring is then a no-op.
+		}
+	}
+
+	function saveScroll(id: string): void {
+		if (!scrollOn) return;
+		const record: ScrollRecord = { x: win!.scrollX ?? 0, y: win!.scrollY ?? 0 };
+		if (scrollOpts.targets) {
+			for (const el of scrollOpts.targets()) {
+				if (!el.id) {
+					warnOnce("scroll-target-id", "A scroll target has no id, so its position can't be saved");
+					continue;
+				}
+				(record.t ??= {})[el.id] = [el.scrollLeft, el.scrollTop];
+			}
+		}
+		const store = readScrollStore();
+		if (!(id in store.pos)) store.order.push(id);
+		store.pos[id] = record;
+		while (store.order.length > SCROLL_CAP) delete store.pos[store.order.shift()!];
+		writeScrollStore(store);
+	}
+
+	function dropScroll(id: string): void {
+		if (!scrollOn) return;
+		const store = readScrollStore();
+		if (!(id in store.pos)) return;
+		delete store.pos[id];
+		store.order = store.order.filter((other) => other !== id);
+		writeScrollStore(store);
+	}
+
+	function restoreScroll(id: string): void {
+		const record = readScrollStore().pos[id];
+		if (!record) return;
+		win!.scrollTo?.(record.x, record.y);
+		if (!scrollOpts.targets || !record.t) return;
+		for (const el of scrollOpts.targets()) {
+			const at = el.id ? record.t[el.id] : undefined;
+			if (at) {
+				el.scrollLeft = at[0];
+				el.scrollTop = at[1];
+			}
+		}
+	}
+
+	function scrollForGo(path: string): void {
+		const hash = path.indexOf("#");
+		let target: Element | null | undefined;
+		if (!hashMode && hash >= 0) {
+			try {
+				target = win!.document.getElementById?.(decodeURIComponent(path.slice(hash + 1)));
+			} catch {
+				target = undefined;
+			}
+		}
+		if (target) target.scrollIntoView();
+		else win!.scrollTo?.(0, 0);
+	}
+
+	function moveFocus(): void {
+		const target = win!.document.querySelector?.(focusSelector!) as HTMLElement | null | undefined;
+		if (!target) return;
+		const active = win!.document.activeElement;
+		if (active && target.contains(active)) return;
+		if (!target.matches(FOCUSABLE)) {
+			target.setAttribute("tabindex", "-1");
+			target.addEventListener("blur", () => target.removeAttribute("tabindex"), { once: true });
+		}
+		target.focus({ preventScroll: scrollOn });
+	}
+
+	/** The view renders after the publish, and history can't see it (D4), so wait for the app's word or two frames. */
+	function whenRendered(location: NavLocation): Promise<void> {
+		if (scrollOpts.ready) {
+			return new Promise<void>((resolve) => resolve(scrollOpts.ready!(location))).catch((err) => {
+				console.error("[@dojo-ng/history] scroll.ready rejected; restoring anyway:", err);
+			});
+		}
+		const frame = win!.requestAnimationFrame?.bind(win);
+		if (!frame) return Promise.resolve();
+		return new Promise((resolve) => frame(() => frame(() => resolve())));
+	}
+
+	/** Called after a published location. A newer navigation cancels the wait of an older one. */
+	function afterNavigation(entry: Entry): void {
+		if (!scrollOn && !focusSelector) return;
+		const token = ++settleToken;
+		const isGo = entry.source === "go";
+		const path = entry.path;
+		void whenRendered(toLocation(entry)).then(() => {
+			if (destroyed || token !== settleToken) return;
+			if (scrollOn) {
+				if (isGo) scrollForGo(path);
+				else restoreScroll(entry.id);
+			}
+			if (focusSelector && isGo) moveFocus();
+		});
+	}
+
+	function onPageHide(): void {
+		if (!destroyed) saveScroll(cur.id);
+	}
+
+	// --- guards --------------------------------------------------------------------------------
+
+	async function allows(to: BlockTarget): Promise<boolean> {
+		const from = last ?? toLocation(cur);
+		try {
+			const answers = await Promise.all([...blockers].map(({ fn }) => fn(to, from)));
+			return answers.every((answer) => answer === true);
+		} catch (err) {
+			console.error("[@dojo-ng/history] a blocker threw; the move is refused:", err);
+			return false;
+		}
+	}
+
+	function onBeforeUnload(event: Event): void {
+		event.preventDefault();
+	}
+
+	async function runUndone(pending: PendingUndo): Promise<void> {
+		const ok = await allows(pending.to);
+		if (!ok || destroyed || pending.token !== guardToken) return;
+		redoing = true;
+		win!.history.go(pending.delta);
+	}
+
 	// --- the coexistence checks (D6) -----------------------------------------------------------
 
 	function checkForeignLocation(): void {
@@ -274,9 +508,29 @@ export function installHistory(bus: PubSub, options: InstallOptions = {}): Histo
 
 	function onGo(request: NavGo): void {
 		if (destroyed || !request || typeof request.path !== "string") return;
-		checkForeignLocation();
+		if (pendingAdopt) {
+			// An address-bar hash edit the browser already made. A blocker can't undo it safely, so it isn't asked.
+			pendingAdopt = false;
+			performGo(request, true);
+		} else if (blockers.size === 0) {
+			performGo(request, false);
+		} else {
+			// Last one wins: a newer request, or any pop, makes this answer stale.
+			const token = ++guardToken;
+			void allows(request).then((ok) => {
+				if (ok && !destroyed && token === guardToken) performGo(request, false);
+			});
+		}
+	}
+
+	/** `adopt`: the browser has already pushed this entry (unstamped), so stamp it in place as the next index. */
+	function performGo(request: NavGo, adopt: boolean): void {
+		guardToken++;
+		if (!adopt) checkForeignLocation();
 		const previous = cur;
-		const replace = request.replace === true || !previous.committed;
+		const replace = !adopt && (request.replace === true || !previous.committed);
+		if (replace) dropScroll(previous.id);
+		else saveScroll(previous.id);
 		const entry: Entry = {
 			id: newId(),
 			index: replace ? previous.index : previous.index + 1,
@@ -288,14 +542,14 @@ export function installHistory(bus: PubSub, options: InstallOptions = {}): Histo
 		};
 		provisionalIds.delete(previous.id);
 		stopTimer();
-		writeEntry(replace ? "replace" : "push", entry, base + request.path);
+		writeEntry(replace || adopt ? "replace" : "push", entry, hrefOf(request.path));
 		if (!replace) writeMax(entry.index);
 		expectedPlace = place();
 		cur = entry;
 
 		// A replace of an entry that had already committed keeps its place on the stack, so the
 		// replacement commits too. Otherwise the entry is provisional until it has been read.
-		const commitNow = dwellMs <= 0 || (replace && previous.committed);
+		const commitNow = dwellMs <= 0 || adopt || (replace && previous.committed);
 		if (commitNow) {
 			entry.committed = true;
 			publish();
@@ -305,13 +559,43 @@ export function installHistory(bus: PubSub, options: InstallOptions = {}): Histo
 			publish();
 			startDwell();
 		}
+		afterNavigation(entry);
 	}
 
 	function onPop(): void {
 		if (destroyed) return;
-		stopTimer();
+		if (undoing) {
+			// The traversal we made to put a guarded Back back. Nothing changed; ask the blockers.
+			const pending = undoing;
+			undoing = undefined;
+			void runUndone(pending);
+			return;
+		}
+		if (redoing) {
+			redoing = false;
+			settlePop();
+			return;
+		}
+		if (blockers.size > 0) {
+			const target = readStamp(win!.history.state);
+			if (target && target.id !== cur.id && target.index !== cur.index) {
+				const delta = target.index - cur.index;
+				undoing = { delta, token: ++guardToken, to: { path: currentPath(), source: "pop" } };
+				win!.history.go(-delta);
+				return;
+			}
+		}
+		settlePop();
+	}
+
+	function settlePop(): void {
+		guardToken++;
 		const raw = win!.history.state;
 		const stamp = readStamp(raw);
+		// Hash mode: an unstamped entry here is an address-bar edit. The hashchange that follows adopts it.
+		if (hashMode && !stamp && place() !== expectedPlace) return;
+		stopTimer();
+		saveScroll(cur.id);
 		let entry: Entry;
 		let newlyCommitted = false;
 		if (!stamp) {
@@ -342,6 +626,14 @@ export function installHistory(bus: PubSub, options: InstallOptions = {}): Histo
 		expectedPlace = place();
 		publish();
 		if (newlyCommitted) fireCommit(entry);
+		afterNavigation(entry);
+	}
+
+	function onHashChange(): void {
+		if (destroyed || readStamp(win!.history.state)) return;
+		pendingAdopt = true;
+		bus.publish<NavGo>("nav:go", { path: currentPath(), replace: true });
+		pendingAdopt = false;
 	}
 
 	function onNavigate(event: Event): void {
@@ -381,9 +673,16 @@ export function installHistory(bus: PubSub, options: InstallOptions = {}): Histo
 			const max = readMax();
 			return max !== undefined && cur.index < max;
 		},
-		href(path) {
-			return base + path;
+		block(blocker) {
+			const entry = { fn: blocker };
+			blockers.add(entry);
+			if (blockers.size === 1) win.addEventListener("beforeunload", onBeforeUnload);
+			return () => {
+				if (!blockers.delete(entry) || blockers.size > 0) return;
+				win.removeEventListener("beforeunload", onBeforeUnload);
+			};
 		},
+		href: hrefOf,
 		annotate(partial: NavAnnotation) {
 			if (destroyed) return;
 			if ("state" in partial) cur.state = partial.state;
@@ -397,6 +696,11 @@ export function installHistory(bus: PubSub, options: InstallOptions = {}): Histo
 			stopTimer();
 			unsubscribeGo();
 			win.removeEventListener("popstate", onPop);
+			win.removeEventListener("hashchange", onHashChange);
+			win.removeEventListener("pagehide", onPageHide);
+			if (blockers.size > 0) win.removeEventListener("beforeunload", onBeforeUnload);
+			blockers.clear();
+			if (savedRestoration !== undefined) win.history.scrollRestoration = savedRestoration;
 			win.document.removeEventListener("visibilitychange", onVisibility);
 			win.document.removeEventListener("dj-navigate", onNavigate);
 			unregisterHistory(instance);
@@ -407,6 +711,12 @@ export function installHistory(bus: PubSub, options: InstallOptions = {}): Histo
 
 	if (!isNative(win.history.pushState) || !isNative(win.history.replaceState)) {
 		warnOnce("patched-pushstate", "history.pushState or replaceState is not the browser's own, so another router may be patching them");
+	}
+
+	if (hashMode && options.base) warnOnce("hash-base", "`base` is ignored in hash mode, because the route lives after the #");
+	if (scrollOn && win.history.scrollRestoration !== undefined) {
+		savedRestoration = win.history.scrollRestoration;
+		win.history.scrollRestoration = "manual";
 	}
 
 	const raw = win.history.state;
@@ -425,6 +735,8 @@ export function installHistory(bus: PubSub, options: InstallOptions = {}): Histo
 
 	const unsubscribeGo = bus.subscribe<NavGo>("nav:go", onGo, { replay: false });
 	win.addEventListener("popstate", onPop);
+	if (hashMode) win.addEventListener("hashchange", onHashChange);
+	if (scrollOn) win.addEventListener("pagehide", onPageHide);
 	win.document.addEventListener("visibilitychange", onVisibility);
 	win.document.addEventListener("dj-navigate", onNavigate);
 	registerHistory(instance);
@@ -448,6 +760,7 @@ export function installHistory(bus: PubSub, options: InstallOptions = {}): Histo
 		);
 	} else {
 		publish();
+		if (!fresh) afterNavigation(cur);
 	}
 
 	return instance;

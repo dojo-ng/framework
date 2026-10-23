@@ -61,8 +61,87 @@ export class FakeNode {
 	}
 }
 
+/**
+ * An element with just enough to test scroll and focus: an id, scroll offsets, attributes, focus,
+ * a blur event, `contains`, and `matches` (focusable when it says so or has a tabindex).
+ */
+export class FakeElement extends FakeNode {
+	constructor(document, { id = "", tagName = "div", focusable = false, scrollLeft = 0, scrollTop = 0 } = {}) {
+		super();
+		this.document = document;
+		this.id = id;
+		this.tagName = tagName.toUpperCase();
+		this.focusable = focusable;
+		this.scrollLeft = scrollLeft;
+		this.scrollTop = scrollTop;
+		this.attrs = new Map();
+		this.focusCalls = [];
+		this.scrolledIntoView = 0;
+	}
+	setAttribute(name, value) {
+		this.attrs.set(name, String(value));
+	}
+	removeAttribute(name) {
+		this.attrs.delete(name);
+	}
+	hasAttribute(name) {
+		return this.attrs.has(name);
+	}
+	getAttribute(name) {
+		return this.attrs.get(name) ?? null;
+	}
+	matches() {
+		return this.focusable || this.attrs.has("tabindex");
+	}
+	contains(node) {
+		for (let n = node; n; n = n.parent) if (n === this) return true;
+		return false;
+	}
+	focus(options) {
+		this.focusCalls.push(options);
+		const previous = this.document.activeElement;
+		this.document.activeElement = this;
+		if (previous && previous !== this) previous.dispatchEvent(Object.assign(new Event("blur")));
+	}
+	blur() {
+		if (this.document.activeElement === this) this.document.activeElement = null;
+		this.dispatchEvent(new Event("blur"));
+	}
+	scrollIntoView() {
+		this.scrolledIntoView++;
+	}
+	addEventListener(type, fn, options) {
+		if (options?.once) {
+			const once = (event) => {
+				this.removeEventListener(type, once);
+				fn(event);
+			};
+			super.addEventListener(type, once);
+		} else super.addEventListener(type, fn);
+	}
+}
+
 class FakeDocument extends FakeNode {
 	visibilityState = "visible";
+	activeElement = null;
+	elements = [];
+	/** Add an element to the page. */
+	element(init) {
+		const el = new FakeElement(this, init);
+		this.elements.push(el);
+		return el;
+	}
+	getElementById(id) {
+		return this.elements.find((el) => el.id === id) ?? null;
+	}
+	/** Selectors here are `#id` or a tag name, comma separated: all the tests need. */
+	querySelector(selector) {
+		const wanted = selector.split(",").map((part) => part.trim());
+		for (const el of this.elements) {
+			if (wanted.some((part) => (part.startsWith("#") ? el.id === part.slice(1) : el.tagName.toLowerCase() === part))) return el;
+		}
+		return null;
+	}
 	setVisibility(state) {
 		this.visibilityState = state;
 		this.dispatchEvent(new Event("visibilitychange"));
@@ -94,6 +173,11 @@ export class FakeWindow {
 		this.calls = [];
 		this.document = new FakeDocument();
 		this.sessionStorage = storage ? new FakeStorage() : undefined;
+		this.scrollX = 0;
+		this.scrollY = 0;
+		/** Every scrollTo call, in order. Calling it also moves scrollX/scrollY. */
+		this.scrolls = [];
+		this._frames = [];
 		if (!storage) {
 			Object.defineProperty(this, "sessionStorage", {
 				get() {
@@ -125,7 +209,14 @@ export class FakeWindow {
 			forward: function forward() {
 				self._traverse(1);
 			}.bind(null),
+			go: function go(delta) {
+				self.traversals.push(delta);
+				self._traverse(delta);
+			}.bind(null),
+			scrollRestoration: "auto",
 		};
+		/** Every history.go(delta) call, in order. */
+		this.traversals = [];
 		Object.defineProperty(this.history, "state", { get: () => this._stack[this._cursor].state, enumerable: true });
 		Object.defineProperty(this.history, "length", { get: () => this._stack.length, enumerable: true });
 	}
@@ -136,9 +227,42 @@ export class FakeWindow {
 
 	_traverse(delta) {
 		const next = this._cursor + delta;
-		if (next < 0 || next >= this._stack.length) return;
+		if (next < 0 || next >= this._stack.length || delta === 0) return;
+		const before = this._stack[this._cursor].url.hash;
 		this._cursor = next;
 		this.dispatchEvent(Object.assign(new Event("popstate"), { state: this.history.state }));
+		if (this._stack[this._cursor].url.hash !== before) this.dispatchEvent(new Event("hashchange"));
+	}
+
+	/** The user edits the address bar's hash, or clicks `<a href="#/x">`: a new entry with null state, popstate, then hashchange. */
+	editHash(hash) {
+		const url = new URL(this._stack[this._cursor].url);
+		url.hash = hash;
+		this._stack.splice(this._cursor + 1);
+		this._stack.push({ state: null, url });
+		this._cursor++;
+		this.dispatchEvent(Object.assign(new Event("popstate"), { state: null }));
+		this.dispatchEvent(new Event("hashchange"));
+	}
+
+	scrollTo(x, y) {
+		this.scrolls.push([x, y]);
+		this.scrollX = x;
+		this.scrollY = y;
+	}
+
+	requestAnimationFrame(fn) {
+		this._frames.push(fn);
+		return this._frames.length;
+	}
+
+	/** Run the queued animation frames `count` times, then let promise callbacks run. */
+	async settle(count = 2) {
+		for (let i = 0; i < count; i++) {
+			const batch = this._frames.splice(0);
+			for (const fn of batch) fn();
+		}
+		await new Promise((resolve) => setImmediate(resolve));
 	}
 
 	get location() {

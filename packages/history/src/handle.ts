@@ -61,6 +61,12 @@ export interface CommitEntry {
 	trail?: TrailEntry[];
 }
 
+/** What a blocker is asked about: a `nav:go`, or a Back/Forward (`source: "pop"`) to `path`. */
+export type BlockTarget = NavGo | { path: string; source: "pop" };
+
+/** Return true to allow the move. May be async. See `HistoryInstance.block`. */
+export type Blocker = (to: BlockTarget, from: NavLocation) => boolean | Promise<boolean>;
+
 export interface HistoryInstance {
 	/** Publish `nav:go`. The only way anything here writes to the browser's history. */
 	go(path: string, state?: unknown, options?: GoOptions): void;
@@ -74,7 +80,13 @@ export interface HistoryInstance {
 	readonly current: NavLocation | undefined;
 	readonly canGoBack: boolean;
 	readonly canGoForward: boolean;
-	/** The URL for an app path: `base` plus `path`. */
+	/**
+	 * Ask before a move. `blocker` runs for every `nav:go` and every Back/Forward; all active blockers
+	 * must return true. A refused move writes and publishes nothing. Returns a function that removes the
+	 * blocker. While any blocker is active, closing the tab shows the browser's own prompt.
+	 */
+	block(blocker: Blocker): () => void;
+	/** The URL for an app path: `base` plus `path`. In `mode: "hash"`, `#` plus `path`. */
 	href(path: string): string;
 	/** Merge `state` and/or `trail` into the current entry, then publish the location again. */
 	annotate(partial: NavAnnotation): void;
