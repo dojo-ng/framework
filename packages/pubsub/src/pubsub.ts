@@ -138,15 +138,20 @@ export function createPubSub(options?: PubSubOptions): PubSub {
 	};
 
 	store.subscribe((state) => {
+		// Advance `previous` BEFORE notifying. A handler may publish (to any topic), which re-enters
+		// this listener with a newer state; if `previous` still held the pre-publish snapshot, that
+		// nested pass would see the outer topic as changed again and re-deliver it to its handlers,
+		// recursing without end when the handler publishes every time it runs.
+		const before = previous;
+		previous = state;
 		for (const topic of Object.keys(state)) {
-			if (state[topic] === previous[topic]) continue;
+			if (state[topic] === before[topic]) continue;
 			const value = state[topic].value;
 			for (const ancestor of ancestorChain(topic, separator)) {
 				const set = listeners.get(ancestor);
 				if (set) for (const handler of [...set]) notify(handler, value, topic);
 			}
 		}
-		previous = state;
 	});
 
 	const subscribe: PubSub["subscribe"] = (topic, handler, subscribeOptions) => {

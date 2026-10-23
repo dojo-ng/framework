@@ -119,3 +119,23 @@ test("a throwing subscriber does not stop delivery to the next handler, and the 
 	assert.match(result.stdout, /SECOND_RAN/); // the second handler ran despite the first throwing
 	assert.match(result.stdout, /UNCAUGHT:boom/); // and the error actually surfaced, not just got swallowed
 });
+
+test("a handler that publishes another topic does not get its own topic re-delivered", () => {
+	// Regression: `previous` used to advance only after the notify loop, so a publish from inside a
+	// handler re-entered the listener, saw the outer topic as still changed, and delivered it again
+	// without end. Found building @dojo-ng/history, whose nav:go handler publishes nav:location.
+	const ps = createPubSub();
+	let goCalls = 0;
+	const located = [];
+	ps.subscribe("nav:go", (p) => {
+		goCalls++;
+		if (goCalls > 50) throw new Error("runaway re-delivery");
+		ps.publish("nav:location", p);
+	}, { replay: false });
+	ps.subscribe("nav:location", (p) => located.push(p), { replay: false });
+
+	ps.publish("nav:go", "/a");
+
+	assert.equal(goCalls, 1);
+	assert.deepEqual(located, ["/a"]);
+});
