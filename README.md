@@ -1,7 +1,7 @@
 # Dojo NG framework
 
 The runtime packages that an app can use with the Dojo NG components, or without them: a
-renderer, a message bus, and a WebSocket client. The `dj-*` components live in a separate
+renderer, a message bus, a WebSocket client, and navigation history. The `dj-*` components live in a separate
 repository, [`components`](https://foss.heptapod.net/dojo-ng/components). Nothing in this
 repository depends on Lit or registers a custom element.
 
@@ -12,6 +12,7 @@ repository depends on Lit or registers a custom element.
 | [`@dojo-ng/framework`](packages/framework/README.md) | A virtual DOM renderer that sets properties on custom elements directly |
 | [`@dojo-ng/pubsub`](packages/pubsub/README.md) | Publish and subscribe with namespaced topics, replay of the last value, and async iteration |
 | [`@dojo-ng/websocket`](packages/websocket/README.md) | A WebSocket client that reconnects, queues messages while offline, and matches each response to its request |
+| [`@dojo-ng/history`](packages/history/README.md) | Navigation history for single-page apps: real paths with `pushState`, and Back and Forward that skip skimmed pages |
 
 Each package's README has its API and examples. The [framework runtime guide](https://dojo-ng.com/docs/framework/) shows all three together.
 

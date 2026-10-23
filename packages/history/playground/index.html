@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>@dojo-ng/history - playground</title>
+<script type="importmap">
+{ "imports": {
+	"@dojo-ng/history": "/packages/history/dist/index.js",
+	"@dojo-ng/pubsub": "/packages/pubsub/dist/index.js"
+} }
+</script>
+<!--
+  Run: cd "Dojo NG/framework/packages/history" && npm run build && npm run playground
+  Then open http://localhost:8902/ . Every route serves this page (SPA fallback), so a reload on
+  /orders/7 lands on that view.
+
+  What to try:
+  - Skimming: leave dwell at 3000, press "Skim four views" (it calls go four times at once), wait 3
+    seconds on the last one, then press Back. You land on the view before the skim, not on the
+    skimmed ones. The log shows committed: false, then committed: true after the dwell.
+  - Plain browser behavior: set dwell to 0, apply, and repeat. Every view is now one Back step.
+  - Reload on a deep path: go to Order 7, reload. The view comes from the path alone.
+  - Trail: the "Order 7" button carries a trail. Reload on that path and the trail is still in the
+    log, because it lives in the entry's state.
+  - A Back must not add entries: the history.length readout does not change when you press Back.
+
+  The views here are chosen with match() from the published location. The history package does not
+  render anything.
+-->
+<style>
+	body { font: 15px/1.5 system-ui, sans-serif; margin: 2rem; max-width: 48rem; }
+	h1 { font-size: 1.2rem; }
+	.muted { color: #666; font-size: 0.9em; }
+	button, input { font: inherit; padding: 0.3rem 0.65rem; margin: 0.15rem 0.3rem 0.15rem 0; }
+	input { width: 5rem; }
+	fieldset { margin: 1rem 0; }
+	legend { font-weight: 600; }
+	#view { padding: 1rem; border: 1px solid #ccc; border-radius: 6px; min-height: 3rem; }
+	#readout { font: 13px ui-monospace, monospace; margin: 0.6rem 0; }
+	#log { height: 14rem; overflow-y: auto; background: #111; color: #ddd; font: 12.5px/1.5 ui-monospace, monospace; padding: 0.6rem 0.8rem; border-radius: 6px; }
+	#log div { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>@dojo-ng/history - playground</h1>
+<p class="muted">Open the page source for what to try. The view below is chosen from the published location.</p>
+
+<fieldset>
+	<legend>Navigate</legend>
+	<button data-go="/">Home</button>
+	<button data-go="/orders">Orders</button>
+	<button data-go="/orders/7" data-trail="true">Order 7</button>
+	<button data-go="/orders/8">Order 8</button>
+	<button data-go="/reports/2026/q3">Report 2026 Q3</button>
+	<button data-go="/settings">Settings</button>
+	<button id="skim">Skim four views</button>
+</fieldset>
+
+<fieldset>
+	<legend>History</legend>
+	<button id="back">Back</button>
+	<button id="forward">Forward</button>
+	<button id="commit">commit()</button>
+	<label>dwellMs <input id="dwell" type="number" min="0" step="100" value="3000" /></label>
+	<button id="apply">Apply (reinstall)</button>
+</fieldset>
+
+<div id="view" role="region" aria-live="polite" aria-label="Current view"></div>
+<div id="readout"></div>
+<div id="log" role="log" aria-label="nav:location log"></div>
+
+<script type="module">
+import { createPubSub } from "@dojo-ng/pubsub";
+import { installHistory, match } from "@dojo-ng/history";
+
+const bus = createPubSub();
+let h = installHistory(bus, { dwellMs: 3000, onCommit: (entry) => log("onCommit", entry) });
+
+const views = [
+	["/", () => "Home"],
+	["/orders", () => "Orders"],
+	["/orders/:id", (p) => `Order ${p.id}`],
+	["/reports/:year/:quarter", (p) => `Report ${p.year} ${p.quarter}`],
+	["/settings", () => "Settings"],
+	["/s/:n", (p) => `Skimmed view ${p.n}`],
+];
+
+function viewFor(path) {
+	const pathname = path.split(/[?#]/)[0];
+	for (const [pattern, render] of views) {
+		const params = match(pattern, pathname);
+		if (params) return render(params);
+	}
+	return `Not found: ${pathname}`;
+}
+
+const $ = (id) => document.getElementById(id);
+function log(label, payload) {
+	const line = document.createElement("div");
+	line.textContent = `${new Date().toLocaleTimeString()}  ${label}  ${JSON.stringify(payload)}`;
+	$("log").append(line);
+	$("log").scrollTop = $("log").scrollHeight;
+}
+
+function readout() {
+	$("readout").textContent = `history.length ${history.length}   canGoBack ${h.canGoBack}   canGoForward ${h.canGoForward}   location ${location.pathname}`;
+}
+
+// The only place the view changes: the published location.
+bus.subscribe("nav:location", (loc) => {
+	$("view").textContent = viewFor(loc.path);
+	log("nav:location", loc);
+	readout();
+});
+
+for (const button of document.querySelectorAll("[data-go]")) {
+	button.addEventListener("click", () => {
+		const path = button.dataset.go;
+		// Through the DOM event, the same way a component does it.
+		const detail = { path };
+		if (button.dataset.trail) detail.trail = [{ path: "/orders", label: "Orders" }, { path, label: button.textContent }];
+		button.dispatchEvent(new CustomEvent("dj-navigate", { detail, bubbles: true, composed: true }));
+	});
+}
+$("skim").addEventListener("click", () => { for (const n of [1, 2, 3, 4]) h.go(`/s/${n}`); });
+$("back").addEventListener("click", () => h.back());
+$("forward").addEventListener("click", () => h.forward());
+$("commit").addEventListener("click", () => h.commit());
+$("apply").addEventListener("click", () => {
+	const dwellMs = Number($("dwell").value);
+	h.destroy();
+	h = installHistory(bus, { dwellMs, onCommit: (entry) => log("onCommit", entry) });
+	log("reinstalled", { dwellMs });
+});
+window.addEventListener("popstate", () => setTimeout(readout, 0));
+</script>
+</body>
+</html>

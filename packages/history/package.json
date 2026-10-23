@@ -1,0 +1,46 @@
+{
+  "name": "@dojo-ng/history",
+  "version": "0.1.0",
+  "description": "Dojo NG navigation history: real paths with pushState, Back and Forward that skip skimmed pages, and hooks for tracking",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./handle": {
+      "types": "./dist/handle.d.ts",
+      "default": "./dist/handle.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "BSD-3-Clause",
+  "keywords": [
+    "dojo",
+    "history",
+    "navigation",
+    "pushstate",
+    "spa",
+    "esm"
+  ],
+  "repository": {
+    "type": "hg",
+    "url": "https://foss.heptapod.net/dojo-ng/framework"
+  },
+  "dependencies": {
+    "@dojo-ng/pubsub": "^0.1.3"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "test:browser": "npm run build && web-test-runner",
+    "playground": "node playground/server.mjs",
+    "prepublishOnly": "npm run build"
+  }
+}
