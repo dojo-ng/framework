@@ -71,6 +71,8 @@ nothing else, so Back never adds an entry.
   highest index is kept in `sessionStorage`. Without `sessionStorage`, `canGoForward` is `false`.
 - `href(path)`: `base` plus `path`, for a link's `href` (`#` plus `path` in hash mode)
 - `block(blocker)`: ask before a move; returns a function that removes the blocker. See Guards.
+- `scrollTarget(key, el)`: save and restore `el`'s scroll under `key`; returns a function that
+  unregisters it. See Scroll restoration.
 - `annotate({ state?, trail? })`: replace those fields on the current entry (with `replaceState`)
   and publish the location again. It sets whichever of the two you pass; it does not merge inside `state`.
 - `commit()`: commit the current entry now
@@ -162,6 +164,28 @@ Off by default, because turning it on sets `history.scrollRestoration` to `"manu
   that renders at once and not enough for data that loads later. With a Lit view, `ready` can
   return `view.updateComplete`; with fetched data, a promise for the fetch. A `ready` that rejects
   is logged and the scroll still happens.
+
+### Components that restore their own scroll
+
+A component whose scroller has no usable `id` (one inside its shadow root, say) names it itself:
+
+```js
+import { getHistory } from "@dojo-ng/history/handle";
+
+const unregister = getHistory()?.scrollTarget(`${this.id}:start`, pane);
+// on disconnect:
+unregister?.();
+```
+
+- The element is saved with each entry under `key`, after the `targets()` elements, and restored by
+  `key` after the same wait. An element re-created under the same key (the view rendered again after
+  Back) gets the saved offset.
+- Namespace the key, for example with the host's `id` and a suffix, so it can't collide with an
+  element id from `targets()`.
+- The returned function unregisters that element only. If a new element has taken the key in the
+  meantime, it stays registered.
+- A disconnected element is skipped. Registering is allowed with `scroll` off; nothing is saved then.
+  `dj-split-panel` registers its two panes this way.
 
 ## Focus after a navigation
 

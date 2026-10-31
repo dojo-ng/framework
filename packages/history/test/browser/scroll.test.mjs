@@ -76,6 +76,48 @@ describe("@dojo-ng/history scroll and focus in a real browser", () => {
 		await until(() => panel.scrollTop === 450, "panel offset restored");
 	});
 
+	it("a shadow-root scroller registered with scrollTarget is restored, even when re-created after Back", async () => {
+		// Like dj-split-panel: the scroller is in a shadow root, has no id, and is named by key.
+		const makeHost = (key) => {
+			const host = document.createElement("div");
+			host.style.cssText = "position:fixed;top:0;left:0;width:100px;height:100px";
+			const pane = document.createElement("div");
+			pane.style.cssText = "height:100px;overflow:auto";
+			pane.innerHTML = '<div style="height:3000px"></div>';
+			host.attachShadow({ mode: "open" }).append(pane);
+			document.body.append(host);
+			return { host, pane, unregister: h.scrollTarget(key, pane) };
+		};
+		h = installHistory(createPubSub(), { dwellMs: 0, scroll: true });
+		let view = makeHost("shadow:start");
+		panel = view.host;
+		view.pane.scrollTop = 350;
+		await until(() => view.pane.scrollTop === 350, "pane scrolled");
+
+		let arrived = nextLocation(h);
+		h.go("/scroll-test/s");
+		await arrived;
+		view.pane.scrollTop = 0;
+		let back = nextLocation(h);
+		h.back();
+		await back;
+		await until(() => view.pane.scrollTop === 350, "pane offset restored by key");
+
+		// Leave again, drop the view, and re-create it as the Back arrives.
+		arrived = nextLocation(h);
+		h.go("/scroll-test/s2");
+		await arrived;
+		view.unregister();
+		view.host.remove();
+		back = nextLocation(h);
+		h.back();
+		await back;
+		view = makeHost("shadow:start");
+		panel = view.host;
+		await until(() => view.pane.scrollTop === 350, "re-created pane gets the saved offset");
+		view.unregister();
+	});
+
 	it("after a go, focus moves to the matched heading and the page can be read from it", async () => {
 		const heading = document.createElement("h1");
 		heading.id = "focus-heading";

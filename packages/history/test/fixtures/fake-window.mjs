@@ -62,7 +62,7 @@ export class FakeNode {
 }
 
 /**
- * An element with just enough to test scroll and focus: an id, scroll offsets, attributes, focus,
+ * An element with just enough to test scroll and focus: an id, scroll offsets, `isConnected`, attributes, focus,
  * a blur event, `contains`, and `matches` (focusable when it says so or has a tabindex).
  */
 export class FakeElement extends FakeNode {
@@ -77,6 +77,8 @@ export class FakeElement extends FakeNode {
 		this.attrs = new Map();
 		this.focusCalls = [];
 		this.scrolledIntoView = 0;
+		/** Set false to stand for an element removed from the document. */
+		this.isConnected = true;
 	}
 	setAttribute(name, value) {
 		this.attrs.set(name, String(value));

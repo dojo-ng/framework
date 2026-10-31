@@ -86,6 +86,15 @@ export interface HistoryInstance {
 	 * blocker. While any blocker is active, closing the tab shows the browser's own prompt.
 	 */
 	block(blocker: Blocker): () => void;
+	/**
+	 * Name a scrolling element so its position is saved and restored with each entry, like the ones
+	 * `scroll.targets()` returns. For components whose scroller has no usable `id`, such as one in a
+	 * shadow root. Namespace `key` (for example `"<host id>:start"`) so it can't collide with an element
+	 * id from `targets()`. A later element under the same key gets the saved position, so a view that
+	 * is re-created after Back is restored. Returns a function that unregisters `el`, and only `el`: if
+	 * another element has since taken the key, it stays. Allowed with `scroll` off; nothing is saved then.
+	 */
+	scrollTarget(key: string, el: Element): () => void;
 	/** The URL for an app path: `base` plus `path`. In `mode: "hash"`, `#` plus `path`. */
 	href(path: string): string;
 	/** Merge `state` and/or `trail` into the current entry, then publish the location again. */

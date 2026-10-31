@@ -114,7 +114,7 @@ interface Stamp {
 	index: number;
 }
 
-/** Saved positions: the window, plus each target by element id. */
+/** Saved positions: the window, plus each target by element id or registered key. */
 interface ScrollRecord {
 	x: number;
 	y: number;
@@ -189,6 +189,8 @@ export function installHistory(bus: PubSub, options: InstallOptions = {}): Histo
 	const scrollOpts: ScrollOptions = typeof options.scroll === "object" ? options.scroll : {};
 	const focusSelector = options.focus || undefined;
 	const blockers = new Set<{ fn: Blocker }>();
+	// Scroll targets components registered with scrollTarget(), by key.
+	const registered = new Map<string, Element>();
 	const warned = new Set<string>();
 	let guardToken = 0;
 	let undoing: PendingUndo | undefined;
@@ -384,6 +386,12 @@ export function installHistory(bus: PubSub, options: InstallOptions = {}): Histo
 				(record.t ??= {})[el.id] = [el.scrollLeft, el.scrollTop];
 			}
 		}
+		// Registered targets go after targets(), keyed as given. A disconnected one is skipped: its
+		// component has gone, and its last position would overwrite nothing useful.
+		for (const [key, el] of registered) {
+			if (!el.isConnected) continue;
+			(record.t ??= {})[key] = [el.scrollLeft, el.scrollTop];
+		}
 		const store = readScrollStore();
 		if (!(id in store.pos)) store.order.push(id);
 		store.pos[id] = record;
@@ -404,14 +412,17 @@ export function installHistory(bus: PubSub, options: InstallOptions = {}): Histo
 		const record = readScrollStore().pos[id];
 		if (!record) return;
 		win!.scrollTo?.(record.x, record.y);
-		if (!scrollOpts.targets || !record.t) return;
-		for (const el of scrollOpts.targets()) {
-			const at = el.id ? record.t[el.id] : undefined;
-			if (at) {
-				el.scrollLeft = at[0];
-				el.scrollTop = at[1];
-			}
+		if (!record.t) return;
+		const apply = (el: Element, at: [number, number] | undefined) => {
+			if (!at) return;
+			el.scrollLeft = at[0];
+			el.scrollTop = at[1];
+		};
+		if (scrollOpts.targets) {
+			for (const el of scrollOpts.targets()) apply(el, el.id ? record.t[el.id] : undefined);
 		}
+		// Looked up by key now, after the wait, so an element re-created by the re-render is the one restored.
+		for (const [key, el] of registered) if (el.isConnected) apply(el, record.t[key]);
 	}
 
 	function scrollForGo(path: string): void {
@@ -682,6 +693,12 @@ export function installHistory(bus: PubSub, options: InstallOptions = {}): Histo
 				win.removeEventListener("beforeunload", onBeforeUnload);
 			};
 		},
+		scrollTarget(key, el) {
+			registered.set(key, el);
+			return () => {
+				if (registered.get(key) === el) registered.delete(key);
+			};
+		},
 		href: hrefOf,
 		annotate(partial: NavAnnotation) {
 			if (destroyed) return;
@@ -700,6 +717,7 @@ export function installHistory(bus: PubSub, options: InstallOptions = {}): Histo
 			win.removeEventListener("pagehide", onPageHide);
 			if (blockers.size > 0) win.removeEventListener("beforeunload", onBeforeUnload);
 			blockers.clear();
+			registered.clear();
 			if (savedRestoration !== undefined) win.history.scrollRestoration = savedRestoration;
 			win.document.removeEventListener("visibilitychange", onVisibility);
 			win.document.removeEventListener("dj-navigate", onNavigate);
