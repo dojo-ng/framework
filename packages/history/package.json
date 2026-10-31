@@ -1,6 +1,6 @@
 {
   "name": "@dojo-ng/history",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Dojo NG navigation history: real paths with pushState, Back and Forward that skip skimmed pages, and hooks for tracking",
   "type": "module",
   "main": "./dist/index.js",
