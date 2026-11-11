@@ -139,3 +139,76 @@ test("a handler that publishes another topic does not get its own topic re-deliv
 	assert.equal(goCalls, 1);
 	assert.deepEqual(located, ["/a"]);
 });
+
+test("CB22: a publish from a handler reaches later subscribers after the current one, in order", () => {
+	const ps = createPubSub();
+	const a = [];
+	const c = [];
+	ps.subscribe("t", (v) => {
+		a.push(v);
+		if (v === 1) ps.publish("t", 2);
+	}, { replay: false });
+	ps.subscribe("t", (v) => c.push(v), { replay: false });
+
+	ps.publish("t", 1);
+
+	assert.deepEqual(a, [1, 2]);
+	assert.deepEqual(c, [1, 2]); // was [2, 1]
+	assert.equal(ps.getLast("t"), 2);
+});
+
+test("CB22: namespace subscribers also see nested publishes in order", () => {
+	const ps = createPubSub();
+	const ns = [];
+	ps.subscribe("nav:go", (p) => ps.publish("nav:location", p), { replay: false });
+	ps.subscribe("nav", (v, topic) => ns.push(`${topic}=${v}`), { replay: false });
+
+	ps.publish("nav:go", "/a");
+
+	assert.deepEqual(ns, ["nav:go=/a", "nav:location=/a"]);
+});
+
+test("CB22: a subscriber added by a handler is not sent a queued publish its replay already gave it", () => {
+	const ps = createPubSub();
+	const late = [];
+	const lateNoReplay = [];
+	ps.subscribe("t", (v) => {
+		if (v !== 1) return;
+		ps.publish("t", 2);
+		ps.subscribe("t", (x) => late.push(x));
+		ps.subscribe("t", (x) => lateNoReplay.push(x), { replay: false });
+	}, { replay: false });
+
+	ps.publish("t", 1);
+	ps.publish("t", 3);
+
+	assert.deepEqual(late, [2, 3]);
+	assert.deepEqual(lateNoReplay, [3]);
+});
+
+test("CB22: a subscription removed by an earlier handler is not called again", () => {
+	const ps = createPubSub();
+	const seen = [];
+	let offB = () => {};
+	ps.subscribe("t", () => offB(), { replay: false });
+	offB = ps.subscribe("t", (v) => seen.push(v), { replay: false });
+
+	ps.publish("t", 1);
+
+	assert.deepEqual(seen, []);
+});
+
+test("CB22: the same handler subscribed twice is two subscriptions; unsubscribing one keeps the other", () => {
+	const ps = createPubSub();
+	const seen = [];
+	const handler = (v) => seen.push(v);
+	const off1 = ps.subscribe("t", handler, { replay: false });
+	ps.subscribe("t", handler, { replay: false });
+
+	ps.publish("t", 1);
+	off1();
+	off1(); // a second call is harmless
+	ps.publish("t", 2);
+
+	assert.deepEqual(seen, [1, 1, 2]);
+});

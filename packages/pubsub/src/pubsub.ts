@@ -36,6 +36,11 @@ export interface PubSubOptions {
  * replays it to late subscribers by default — which is what callers usually expect. Every
  * `publish` notifies current subscribers, even if the payload is unchanged.
  *
+ * A publish made from inside a handler is queued and delivered once the current publish has
+ * reached every subscriber, so every subscriber sees publishes in the order they were made.
+ * Each `subscribe` call is its own subscription: the same handler subscribed twice is called
+ * twice, and each returned function removes only its own subscription.
+ *
  * Topics nest on the configured separator: publishing `a:b:c` also notifies subscribers of
  * `a:b` and `a`, most-specific first. A handler receives `(payload, topic)`, where `topic` is
  * the topic actually published — the one a namespace subscriber needs to tell descendants
@@ -122,49 +127,80 @@ function mostRecentAtOrUnder(state: Topics, topic: string, separator: string): {
 	return best;
 }
 
+/** One `subscribe` call. A record, not the bare handler, so subscribing a handler twice gives two subscriptions. */
+interface Subscription {
+	handler: (value: unknown, topic: string) => void;
+	/** Deliver only publishes with a higher `seq`: ones made after subscribing, or after the replayed value. */
+	after: number;
+	active: boolean;
+}
+
 export function createPubSub(options?: PubSubOptions): PubSub {
 	const separator = options?.separator ?? ":";
 	const store = createInternalStore<Topics>({});
-	const listeners = new Map<string, Set<(value: unknown, topic: string) => void>>();
+	const subscriptions = new Map<string, Set<Subscription>>();
 	let previous = store.getState();
 	let seq = 0;
+	// Publishes waiting to be delivered. A publish made by a handler joins the end of this queue
+	// and is delivered after the current one has reached every subscriber, so all subscribers see
+	// publishes in the order they were made.
+	const queue: { topic: string; entry: Entry }[] = [];
+	let delivering = false;
 
-	const notify = (handler: (value: unknown, topic: string) => void, value: unknown, topic: string) => {
+	const notify = (sub: Subscription, value: unknown, topic: string) => {
 		try {
-			handler(value, topic);
+			sub.handler(value, topic);
 		} catch (err) {
 			setTimeout(() => { throw err; }, 0);
 		}
 	};
 
+	const deliver = (topic: string, entry: Entry) => {
+		for (const ancestor of ancestorChain(topic, separator)) {
+			const set = subscriptions.get(ancestor);
+			if (!set) continue;
+			for (const sub of [...set]) {
+				if (!sub.active || entry.seq <= sub.after) continue;
+				sub.after = entry.seq;
+				notify(sub, entry.value, topic);
+			}
+		}
+	};
+
 	store.subscribe((state) => {
-		// Advance `previous` BEFORE notifying. A handler may publish (to any topic), which re-enters
+		// Advance `previous` BEFORE delivering. A handler may publish (to any topic), which re-enters
 		// this listener with a newer state; if `previous` still held the pre-publish snapshot, that
-		// nested pass would see the outer topic as changed again and re-deliver it to its handlers,
-		// recursing without end when the handler publishes every time it runs.
+		// nested pass would see the outer topic as changed again and re-deliver it.
 		const before = previous;
 		previous = state;
 		for (const topic of Object.keys(state)) {
-			if (state[topic] === before[topic]) continue;
-			const value = state[topic].value;
-			for (const ancestor of ancestorChain(topic, separator)) {
-				const set = listeners.get(ancestor);
-				if (set) for (const handler of [...set]) notify(handler, value, topic);
-			}
+			if (state[topic] !== before[topic]) queue.push({ topic, entry: state[topic] });
+		}
+		if (delivering) return;
+		delivering = true;
+		try {
+			for (let next = queue.shift(); next; next = queue.shift()) deliver(next.topic, next.entry);
+		} finally {
+			delivering = false;
 		}
 	});
 
 	const subscribe: PubSub["subscribe"] = (topic, handler, subscribeOptions) => {
 		const replay = subscribeOptions?.replay ?? true;
-		let set = listeners.get(topic);
-		if (!set) listeners.set(topic, (set = new Set()));
-		const h = handler as (value: unknown, topic: string) => void;
-		set.add(h);
+		let set = subscriptions.get(topic);
+		if (!set) subscriptions.set(topic, (set = new Set()));
+		// `after = seq` also skips publishes made before this call that are still queued: a replay
+		// already covers them, and without replay the subscriber asked for new messages only.
+		const sub: Subscription = { handler: handler as Subscription["handler"], after: seq, active: true };
+		set.add(sub);
 		if (replay) {
 			const found = mostRecentAtOrUnder(store.getState(), topic, separator);
-			if (found) notify(h, found.entry.value, found.topic);
+			if (found) notify(sub, found.entry.value, found.topic);
 		}
-		return () => { set!.delete(h); };
+		return () => {
+			sub.active = false;
+			set!.delete(sub);
+		};
 	};
 
 	return {

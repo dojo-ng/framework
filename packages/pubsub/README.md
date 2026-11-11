@@ -38,6 +38,10 @@ bus.getLast("cart");             // 42, the newest value at or under "cart"
 - Replay is on by default: a new subscriber receives the topic's last value at once. Pass
   `{ replay: false }` when you only want new messages.
 - Every `publish` calls the handlers, even when the value is the same as before.
+- A handler may publish. That publish is delivered after the current one has reached every
+  subscriber, so all subscribers see messages in the order they were published.
+- Each `subscribe` call is a separate subscription, even for the same handler, and its returned
+  function removes only that one.
 - A handler that throws does not stop delivery to the others. The error is thrown again
   asynchronously, so it still reaches the console.
 
