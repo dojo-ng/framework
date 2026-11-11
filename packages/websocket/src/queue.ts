@@ -68,6 +68,24 @@ export class Queue<T> {
 		return this.length === 0;
 	}
 
+	/** Removes the first element matching `predicate`. Returns true if one was removed. */
+	removeFirst(predicate: (elem: T) => boolean): boolean {
+		let prev: Node<T> | null = null;
+		let node = this.head;
+		while (node !== null) {
+			if (predicate(node.value)) {
+				if (prev) prev.next = node.next;
+				else this.head = node.next;
+				if (this.tail === node) this.tail = prev;
+				this.length--;
+				return true;
+			}
+			prev = node;
+			node = node.next;
+		}
+		return false;
+	}
+
 	clear(): void {
 		this.head = null;
 		this.tail = null;

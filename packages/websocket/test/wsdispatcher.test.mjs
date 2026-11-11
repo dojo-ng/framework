@@ -5,10 +5,16 @@
  *
  * Run: node --test test/wsdispatcher.test.mjs
  */
-import { test } from "node:test";
+import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { WSDispatcher } from "../dist/wsdispatcher.js";
+import { WSDispatcher, WSCallError } from "../dist/wsdispatcher.js";
 import { withFakeWebSocketAsync } from "./helpers/fake-websocket.mjs";
+
+// Reconnect jitter draws from Math.random. Pin it to 0 (no extra delay) so the backoff tests see
+// the exact table delays; the jitter test sets its own value.
+const realRandom = Math.random;
+beforeEach(() => { Math.random = () => 0; });
+afterEach(() => { Math.random = realRandom; });
 
 // The Fibonacci step table, copied literally rather than
 // imported from the module under test — importing the module's own constant would let a wrong
@@ -340,5 +346,307 @@ test("reconnectBase sets the first reopen delay; the default is still 15s", asyn
 		assert.equal(dflt.socket.socket, null, "default reopened before 15s");
 		t.mock.timers.tick(1);
 		assert.notEqual(dflt.socket.socket, null, "default did not reopen at 15s");
+	});
+});
+
+const PING = JSON.stringify({ action: "ping", id: 0, data: null });
+const TEN_MINUTES = 10 * 60 * 1000;
+
+// Mock timers run only the timers already due when tick() starts, not ones a callback schedules
+// during the same tick. Chained timers (watchdog, then recovery, then reopen) need small steps.
+async function advance(t, ms) {
+	for (let done = 0; done < ms; done += 1_000) {
+		t.mock.timers.tick(Math.min(1_000, ms - done));
+		await settle();
+	}
+}
+
+// CB16: the watchdog used to stay armed after close(), and its expiry reopened the dispatcher.
+test("close() after a ping disarms the watchdog: no reopen, ever", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	await withFakeWebSocketAsync(async () => {
+		let calls = 0;
+		const dispatcher = new WSDispatcher({ url: () => { calls++; return "wss://example.test"; } });
+		dispatcher.open();
+		await settle();
+		dispatcher.socket.socket.simulateOpen();
+		dispatcher.socket.socket.onmessage({ data: PING });
+
+		dispatcher.close();
+		await advance(t, TEN_MINUTES);
+		assert.equal(dispatcher.socket.socket, null, "the watchdog reopened a closed dispatcher");
+		assert.equal(calls, 1, "the URL provider was called again after close()");
+	});
+});
+
+test("close() during the watchdog's 2s recovery delay stops the reopen", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	await withFakeWebSocketAsync(async () => {
+		const dispatcher = new WSDispatcher({ url: "wss://example.test" });
+		dispatcher.open();
+		dispatcher.socket.socket.simulateOpen();
+		dispatcher.socket.socket.onmessage({ data: PING });
+
+		t.mock.timers.tick(40_000); // watchdog expires and closes
+		t.mock.timers.tick(1_000); // halfway through the recovery delay
+		dispatcher.close();
+		await advance(t, TEN_MINUTES);
+		assert.equal(dispatcher.socket.socket, null);
+	});
+});
+
+test("a connection that drops on its own disarms the watchdog of that connection", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	await withFakeWebSocketAsync(() => {
+		const dispatcher = new WSDispatcher({ url: "wss://example.test" });
+		dispatcher.open();
+		dispatcher.socket.socket.simulateOpen();
+		dispatcher.socket.socket.onmessage({ data: PING });
+		dispatcher.socket.socket.close(); // dropped at t=0, reopen due at 15s
+
+		t.mock.timers.tick(15_000);
+		const second = dispatcher.socket.socket;
+		second.simulateOpen();
+		// The first connection's watchdog would have fired at 40s and closed this healthy socket.
+		t.mock.timers.tick(30_000);
+		assert.equal(dispatcher.isOpen(), true, "a stale watchdog closed the new connection");
+		assert.equal(dispatcher.socket.socket, second);
+	});
+});
+
+// CB21: the backoff timer used to survive close() and call open(), which cleared #closing.
+test("close() during reconnect backoff cancels the pending reopen", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	await withFakeWebSocketAsync(async () => {
+		const dispatcher = new WSDispatcher({ url: "wss://example.test" });
+		dispatcher.open();
+		dispatcher.socket.socket.simulateOpen();
+		dispatcher.socket.socket.close(); // dropped: reopen scheduled for 15s
+
+		t.mock.timers.tick(5_000);
+		dispatcher.close();
+		await advance(t, TEN_MINUTES);
+		assert.equal(dispatcher.socket.socket, null, "the backoff timer reopened a closed dispatcher");
+	});
+});
+
+test("open() during reconnect backoff replaces the pending reopen", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	await withFakeWebSocketAsync(async () => {
+		let calls = 0;
+		const dispatcher = new WSDispatcher({ url: () => { calls++; return "wss://example.test"; } });
+		dispatcher.open();
+		await settle();
+		dispatcher.socket.socket.simulateOpen();
+		dispatcher.socket.socket.close();
+
+		t.mock.timers.tick(5_000);
+		dispatcher.open();
+		await settle();
+		assert.equal(calls, 2);
+		await advance(t, TEN_MINUTES);
+		assert.equal(calls, 2, "the old backoff timer spent another URL");
+	});
+});
+
+// CB32: robustness.
+test("frames that are not JSON or not an envelope are dropped without throwing", async () => {
+	// WSocket delivers frames through an EventTarget, which reports a listener's exception as an
+	// uncaught error instead of throwing it to fake.onmessage, so watch for that too.
+	const uncaught = [];
+	const onUncaught = (err) => uncaught.push(err);
+	process.on("uncaughtException", onUncaught);
+	try {
+		await malformedFrames();
+		await settle();
+	} finally {
+		process.off("uncaughtException", onUncaught);
+	}
+	assert.deepEqual(uncaught.map(String), []);
+});
+
+async function malformedFrames() {
+	await withFakeWebSocketAsync(async () => {
+		const dispatcher = new WSDispatcher({ url: "wss://example.test" });
+		dispatcher.open();
+		const fake = dispatcher.socket.socket;
+		fake.simulateOpen();
+
+		for (const data of ["not json", "{", "null", "42", '"str"', JSON.stringify({ action: "event", id: 0 }),
+			JSON.stringify({ action: "event", id: 0, data: { params: 1 } }), JSON.stringify({ action: "nope" })]) {
+			assert.doesNotThrow(() => fake.onmessage({ data }), `threw on ${data}`);
+		}
+
+		const promise = dispatcher.call("still works");
+		const frame = sentFrames(fake).find((f) => f.action === "call");
+		fake.onmessage({ data: JSON.stringify({ action: "call", id: frame.id, data: "yes" }) });
+		assert.equal(await promise, "yes");
+	});
+}
+
+test("call() with a timeout rejects with reason 'timeout', and an unsent call never goes out", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	await withFakeWebSocketAsync(async () => {
+		const dispatcher = new WSDispatcher({ url: "wss://example.test" });
+		const promise = dispatcher.call("late", { timeout: 1_000 });
+		const outcome = promise.then(() => "resolved", (err) => err);
+
+		t.mock.timers.tick(999);
+		t.mock.timers.tick(1);
+		const err = await outcome;
+		assert.ok(err instanceof WSCallError, "did not reject with WSCallError");
+		assert.equal(err.reason, "timeout");
+
+		dispatcher.open();
+		dispatcher.socket.socket.simulateOpen();
+		assert.equal(sentFrames(dispatcher.socket.socket).length, 0, "a timed-out call was still sent");
+	});
+});
+
+test("callTimeout sets the default; a resolved call clears its timer", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	await withFakeWebSocketAsync(async () => {
+		const dispatcher = new WSDispatcher({ url: "wss://example.test", callTimeout: 500 });
+		dispatcher.open();
+		const fake = dispatcher.socket.socket;
+		fake.simulateOpen();
+
+		const slow = dispatcher.call("slow").then(() => "resolved", (err) => err.reason);
+		const fast = dispatcher.call("fast");
+		const [, f2] = sentFrames(fake).filter((f) => f.action === "call");
+		fake.onmessage({ data: JSON.stringify({ action: "call", id: f2.id, data: "ok" }) });
+		assert.equal(await fast, "ok");
+
+		t.mock.timers.tick(500);
+		assert.equal(await slow, "timeout");
+
+		const unlimited = dispatcher.call("x", { timeout: 0 }).then(() => "resolved", () => "rejected");
+		t.mock.timers.tick(TEN_MINUTES);
+		const race = await Promise.race([unlimited, new Promise((r) => setImmediate(() => r("pending")))]);
+		assert.equal(race, "pending", "timeout: 0 should mean no limit");
+	});
+});
+
+test("aborting a call's signal rejects it with reason 'aborted' and unqueues it", async () => {
+	await withFakeWebSocketAsync(async () => {
+		const dispatcher = new WSDispatcher({ url: "wss://example.test" });
+		const controller = new AbortController();
+		const outcome = dispatcher.call("q", { signal: controller.signal }).then(() => "resolved", (err) => err.reason);
+		controller.abort();
+		assert.equal(await outcome, "aborted");
+
+		const pre = new AbortController();
+		pre.abort();
+		await assert.rejects(dispatcher.call("q", { signal: pre.signal }), (err) => err.reason === "aborted");
+
+		dispatcher.open();
+		dispatcher.socket.socket.simulateOpen();
+		assert.equal(sentFrames(dispatcher.socket.socket).length, 0, "an aborted call was still sent");
+	});
+});
+
+test("a dropped connection rejects calls already sent; a call still queued goes out on reconnect", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	await withFakeWebSocketAsync(async () => {
+		const dispatcher = new WSDispatcher({ url: "wss://example.test" });
+		dispatcher.open();
+		const first = dispatcher.socket.socket;
+		first.simulateOpen();
+
+		const sent = dispatcher.call("in flight").then(() => "resolved", (err) => err.reason);
+		first.close();
+		assert.equal(await sent, "closed");
+
+		const queued = dispatcher.call("while offline");
+		t.mock.timers.tick(15_000);
+		const second = dispatcher.socket.socket;
+		second.simulateOpen();
+		const frame = sentFrames(second).find((f) => f.action === "call");
+		assert.equal(frame.data, "while offline");
+		second.onmessage({ data: JSON.stringify({ action: "call", id: frame.id, data: "done" }) });
+		assert.equal(await queued, "done");
+	});
+});
+
+test("explicit close() rejects calls already sent", async () => {
+	await withFakeWebSocketAsync(async () => {
+		const dispatcher = new WSDispatcher({ url: "wss://example.test" });
+		dispatcher.open();
+		dispatcher.socket.socket.simulateOpen();
+		const sent = dispatcher.call("x").then(() => "resolved", (err) => err.reason);
+		dispatcher.close();
+		assert.equal(await sent, "closed");
+	});
+});
+
+test("reconnect delays get random jitter: never shorter, at most reconnectJitter longer", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	await withFakeWebSocketAsync(() => {
+		Math.random = () => 0.999;
+		const dflt = new WSDispatcher({ url: "wss://example.test", reconnectBase: 4 });
+		dflt.open();
+		dflt.socket.socket.simulateOpen();
+		dflt.socket.socket.close();
+		t.mock.timers.tick(4_998);
+		assert.equal(dflt.socket.socket, null, "default jitter added no delay");
+		t.mock.timers.tick(2); // 4s plus 25% of it times 0.999 = 4999ms, still under 5s
+		assert.notEqual(dflt.socket.socket, null, "jitter went past 25%");
+		dflt.close();
+
+		const none = new WSDispatcher({ url: "wss://example.test", reconnectBase: 4, reconnectJitter: 0 });
+		none.open();
+		none.socket.socket.simulateOpen();
+		none.socket.socket.close();
+		t.mock.timers.tick(4_000);
+		assert.notEqual(none.socket.socket, null, "reconnectJitter: 0 still added delay");
+	});
+});
+
+test("dispose() rejects pending calls, stops reconnecting, and detaches from pub/sub", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	await withFakeWebSocketAsync(async () => {
+		const dispatcher = new WSDispatcher({ url: "wss://example.test" });
+		dispatcher.open();
+		const fake = dispatcher.socket.socket;
+		fake.simulateOpen();
+		fake.onmessage({ data: PING });
+		const inFlight = dispatcher.call("a").then(() => "resolved", (err) => err.reason);
+		const queued = new WSDispatcher({ url: "wss://example.test" }); // never opened, so its call stays queued
+		const waiting = queued.call("b").then(() => "resolved", (err) => err.reason);
+
+		dispatcher.dispose();
+		queued.dispose();
+		assert.equal(await inFlight, "closed");
+		assert.equal(await waiting, "disposed");
+
+		t.mock.timers.tick(TEN_MINUTES);
+		assert.equal(dispatcher.socket.socket, null);
+		dispatcher.open();
+		assert.equal(dispatcher.socket.socket, null, "open() after dispose() opened a socket");
+		await assert.rejects(dispatcher.call("c"), (err) => err.reason === "disposed");
+
+		queued.pubsub.publish("notify:event", { event: "x", params: 1 });
+		queued.open();
+		assert.equal(queued.socket.socket, null);
+	});
+});
+
+test("an inbound event on the outbound topic reaches subscribers but is not echoed back", async () => {
+	await withFakeWebSocketAsync(() => {
+		const dispatcher = new WSDispatcher({ url: "wss://example.test" });
+		dispatcher.open();
+		const fake = dispatcher.socket.socket;
+		fake.simulateOpen();
+
+		const seen = [];
+		dispatcher.pubsub.subscribe("notify:event", (p) => seen.push(p), { replay: false });
+		fake.onmessage({ data: JSON.stringify({ action: "event", id: 0, data: { event: "notify:event", params: { a: 1 } } }) });
+		fake.onmessage({ data: JSON.stringify({ action: "event", id: 0, data: { event: "notify:event:sub", params: { b: 2 } } }) });
+		assert.deepEqual(seen, [{ a: 1 }, { b: 2 }]);
+		assert.equal(sentFrames(fake).length, 0, "the inbound event was echoed to the server");
+
+		// The app publishing on the outbound topic still sends.
+		dispatcher.pubsub.publish("notify:event", { event: "out", params: 3 });
+		assert.equal(sentFrames(fake).length, 1);
 	});
 });

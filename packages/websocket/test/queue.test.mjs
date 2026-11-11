@@ -86,3 +86,23 @@ test("forEach visits in FIFO order and can break early by returning false", () =
 	});
 	assert.deepEqual(seen, ["a", "b"]);
 });
+
+test("removeFirst removes only the first match, fixing head and tail", () => {
+	const q = new Queue();
+	for (const n of [1, 2, 3, 2]) q.enqueue(n);
+	assert.equal(q.removeFirst((n) => n === 2), true);
+	assert.equal(q.size(), 3);
+	assert.equal(q.removeFirst((n) => n === 9), false);
+	assert.equal(q.removeFirst((n) => n === 1), true); // head
+	assert.equal(q.peek(), 3);
+	assert.equal(q.removeFirst((n) => n === 2), true); // tail
+	q.enqueue(4);
+	const seen = [];
+	q.forEach((n) => { seen.push(n); });
+	assert.deepEqual(seen, [3, 4]);
+	assert.equal(q.removeFirst(() => true), true);
+	assert.equal(q.removeFirst(() => true), true);
+	assert.equal(q.isEmpty(), true);
+	q.enqueue(5);
+	assert.equal(q.dequeue(), 5);
+});

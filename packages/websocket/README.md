@@ -45,7 +45,13 @@ bus.publish("notify:event", { event: "chat:message", params: { text: "Hi" } });
 - Messages sent while the connection is down wait in a queue. A message leaves the queue only
   after it is sent, so a failed send does not lose it.
 - After a lost connection, the client waits longer before each new try (Fibonacci backoff). A
-  successful connect resets the delay. After `close()`, it does not reconnect.
+  successful connect resets the delay. Each delay is stretched by a random amount, up to 25%
+  longer and never shorter, so tabs dropped by one server restart don't all come back in the
+  same second. `reconnectJitter` sets that fraction; 0 turns it off.
+- After `close()`, it does not reconnect until you call `open()` again. That holds even when
+  `close()` lands while a reconnect is waiting or the heartbeat check is counting down.
+- `dispose()` ends the client for good: it closes, rejects every pending `call()`, drops the
+  queue, and stops listening to the bus. `open()` does nothing afterwards.
 - `reconnectBase` (seconds, default 15) is added to every reconnect delay. Lower it when the
   server is on the same machine, where a disconnect is usually a quick restart. Keep it high for
   a public site, so a server restart is not met by every tab at once.
@@ -73,10 +79,26 @@ const server = new WSDispatcher({
 - When the server sends `ping` messages, the client expects one at least every 40 seconds. If
   none arrives, it closes and reconnects through the same backoff. A server that never sends a
   ping turns this check off.
-- `call()` has no timeout. If the server never answers, the promise never settles. Use
-  `Promise.race` with a timer if you need a limit.
+- `call()` rejects with a `WSCallError` when it can no longer get an answer. Its `reason` is
+  `"timeout"`, `"aborted"`, `"closed"` (the connection dropped after the request went out), or
+  `"disposed"`. A request still waiting in the queue survives a dropped connection and goes out on
+  the next connect. Set a limit for every call with `callTimeout` (milliseconds), or per call with
+  `call(data, { timeout, signal })`. Without one, a call on a connection that stays up but never
+  answers still waits forever.
+
+```js
+import { WSCallError } from "@dojo-ng/websocket";
+
+try {
+  const user = await server.call({ method: "getUser", args: [7] }, { timeout: 5000 });
+} catch (err) {
+  if (err instanceof WSCallError && err.reason === "timeout") showRetry();
+}
+```
 - Publishing to `outboundTopic` sends an event to the server. The default topic is
-  `"notify:event"`.
+  `"notify:event"`. An event from the server that lands on that topic still reaches your
+  subscribers, but it is not sent back to the server.
+- A message from the server that is not JSON, or not in the format below, is ignored.
 - `simulate("disconnect")` and `simulate("connect")` let you test your reconnect handling without
   a real outage.
 
